@@ -78,7 +78,10 @@ export default class GalaxyViewPlugin extends Plugin {
 			await sleep(400);
 			new Notice(`S4：${i + 1}/${cycles}`);
 		}
-		await sleep(3000);
+		// 布局 tick 产生大量短命垃圾（d3 每 tick 重建八叉树），忙循环期间 major GC
+		// 不一定跑——等空闲 GC 收尾后再读数，否则把 GC 滞后误判成泄漏（2026-06-12 实测）
+		new Notice('S4：等待 20s 让 GC 收尾…');
+		await sleep(20_000);
 		const after = heapUsed();
 		const result = {
 			scenario: 'S4',
@@ -91,7 +94,7 @@ export default class GalaxyViewPlugin extends Plugin {
 			heapBeforeMB: before / 1048576,
 			heapAfterMB: after / 1048576,
 			heapDeltaMB: (after - before) / 1048576,
-			note: 'WebGL context 告警需看开发者控制台；GC 不可强制，delta 仅供参考',
+			note: 'WebGL context 告警需看开发者控制台；真泄漏判据=连续两轮 before 持续抬升',
 		};
 		await writeBenchResult(this.app, result);
 		new Notice(`S4 完成：堆增量 ${result.heapDeltaMB.toFixed(1)} MB（通过线 <20MB）`);

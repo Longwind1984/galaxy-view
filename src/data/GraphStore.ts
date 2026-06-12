@@ -1,0 +1,87 @@
+import type { App } from 'obsidian';
+import { Component, debounce } from 'obsidian';
+import type { GraphData } from '../types';
+import { buildGraph } from './buildGraph';
+import { seedPosition, seedRadius } from './seed';
+
+/**
+ * 唯一读 metadataCache 的模块。
+ * 持有 GraphData + 坐标数组；重建时按 id 保留旧坐标（身份保持合并），
+ * 布局只需低温重热，星系不爆炸。
+ */
+export class GraphStore extends Component {
+	data: GraphData = { nodes: [], links: [] };
+	/** x,y,z × nodes.length，布局引擎原地写，渲染器只读 */
+	positions = new Float32Array(0);
+
+	private includeUnresolved = false;
+	private onChanged: (() => void) | null = null;
+
+	constructor(private app: App) {
+		super();
+	}
+
+	/** dataChanged 在防抖重建完成后触发（调用方负责 reheat + 重建渲染缓冲） */
+	init(includeUnresolved: boolean, onChanged: () => void): void {
+		this.includeUnresolved = includeUnresolved;
+		this.onChanged = onChanged;
+		const rebuildSoon = debounce(() => this.rebuild(true), 800, true);
+		this.registerEvent(this.app.metadataCache.on('resolved', rebuildSoon));
+		this.registerEvent(this.app.vault.on('rename', rebuildSoon));
+		this.registerEvent(this.app.vault.on('delete', rebuildSoon));
+	}
+
+	async ensureCacheReady(): Promise<void> {
+		if (Object.keys(this.app.metadataCache.resolvedLinks).length > 0) return;
+		await new Promise<void>((resolve) => {
+			this.registerEvent(this.app.metadataCache.on('resolved', () => resolve()));
+		});
+	}
+
+	setIncludeUnresolved(v: boolean): void {
+		if (v === this.includeUnresolved) return;
+		this.includeUnresolved = v;
+		this.rebuild(true);
+	}
+
+	getIncludeUnresolved(): boolean {
+		return this.includeUnresolved;
+	}
+
+	/** preservePositions=false 用于基准（全新确定性种子 → 完整冷布局） */
+	rebuild(preservePositions: boolean): void {
+		const files = this.app.vault.getMarkdownFiles().map((f) => ({
+			path: f.path,
+			basename: f.basename,
+		}));
+		const next = buildGraph(files, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks, {
+			includeUnresolved: this.includeUnresolved,
+		});
+
+		const oldIndexById = new Map<string, number>();
+		if (preservePositions) {
+			this.data.nodes.forEach((n, i) => oldIndexById.set(n.id, i));
+		}
+		const oldPositions = this.positions;
+
+		const radius = seedRadius(next.nodes.length);
+		const positions = new Float32Array(next.nodes.length * 3);
+		next.nodes.forEach((n, i) => {
+			const oi = oldIndexById.get(n.id);
+			if (oi !== undefined && oi * 3 + 2 < oldPositions.length) {
+				positions[i * 3] = oldPositions[oi * 3] ?? 0;
+				positions[i * 3 + 1] = oldPositions[oi * 3 + 1] ?? 0;
+				positions[i * 3 + 2] = oldPositions[oi * 3 + 2] ?? 0;
+			} else {
+				const [x, y, z] = seedPosition(n.id, radius);
+				positions[i * 3] = x;
+				positions[i * 3 + 1] = y;
+				positions[i * 3 + 2] = z;
+			}
+		});
+
+		this.data = next;
+		this.positions = positions;
+		this.onChanged?.();
+	}
+}

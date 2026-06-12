@@ -1,19 +1,27 @@
-import type { NodeObject, LinkObject } from '3d-force-graph';
-
-export interface SpikeNode extends NodeObject {
-	id: string;
+export interface GraphNode {
+	id: string; // vault path；未解析为 "unresolved:<名字>"
 	name: string;
-	folder: string;
-	folderTop: string;
+	folderTop: string; // 顶层文件夹；根目录 ''；未解析 '__unresolved__'
 	degree: number;
 	unresolved: boolean;
 }
 
-export type SpikeLink = LinkObject<SpikeNode>;
+/** 边用节点数组下标表示——聚合渲染按索引 gather 坐标 */
+export interface GraphLink {
+	source: number;
+	target: number;
+}
 
-export interface SpikeGraphData {
-	nodes: SpikeNode[];
-	links: SpikeLink[];
+export interface GraphData {
+	nodes: GraphNode[];
+	links: GraphLink[];
+}
+
+export interface LayoutParams {
+	charge: number; // 负值=斥力
+	linkDistance: number;
+	centerPull: number; // forceX/Y/Z 强度，防孤儿飞逸
+	velocityDecay: number;
 }
 
 export interface FrameStats {

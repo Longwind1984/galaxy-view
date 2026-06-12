@@ -1,10 +1,11 @@
 import { Notice, Plugin } from 'obsidian';
-import { SpikeView, VIEW_TYPE_GALAXY } from './spike/SpikeView';
-import { heapUsed, sleep, writeBenchResult } from './spike/bench';
+import { VIEW_TYPE_GALAXY } from './constants';
+import { GalaxyView } from './view/GalaxyView';
+import { heapUsed, sleep, writeBenchResult } from './bench/bench';
 
 export default class GalaxyViewPlugin extends Plugin {
 	async onload(): Promise<void> {
-		this.registerView(VIEW_TYPE_GALAXY, (leaf) => new SpikeView(leaf));
+		this.registerView(VIEW_TYPE_GALAXY, (leaf) => new GalaxyView(leaf));
 
 		this.addRibbonIcon('orbit', '打开星系视图', () => {
 			void this.activateView();
@@ -31,7 +32,7 @@ export default class GalaxyViewPlugin extends Plugin {
 		});
 	}
 
-	async activateView(): Promise<SpikeView | null> {
+	async activateView(): Promise<GalaxyView | null> {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(VIEW_TYPE_GALAXY)[0] ?? null;
 		if (!leaf) {
@@ -40,7 +41,7 @@ export default class GalaxyViewPlugin extends Plugin {
 		}
 		if (leaf.isDeferred) await leaf.loadIfDeferred();
 		await workspace.revealLeaf(leaf);
-		return leaf.view instanceof SpikeView ? leaf.view : null;
+		return leaf.view instanceof GalaxyView ? leaf.view : null;
 	}
 
 	private async runBenchSuite(): Promise<void> {
@@ -49,9 +50,16 @@ export default class GalaxyViewPlugin extends Plugin {
 			new Notice('星系视图打开失败');
 			return;
 		}
-		await view.runScenario('S1');
-		await view.runScenario('S2');
-		await view.runScenario('S3');
+		// 等控制器完成异步启动
+		for (let i = 0; i < 100 && !view.controller; i++) await sleep(100);
+		const c = view.controller;
+		if (!c) {
+			new Notice('星系视图初始化超时');
+			return;
+		}
+		await c.runScenario('S1');
+		await c.runScenario('S2');
+		await c.runScenario('S3');
 		new Notice('基准完成，结果在 _galaxy_bench/ 目录');
 	}
 
@@ -78,6 +86,7 @@ export default class GalaxyViewPlugin extends Plugin {
 			nodes: counts.nodes,
 			links: counts.links,
 			bloom: true,
+			renderer: 'aggregate',
 			cycles,
 			heapBeforeMB: before / 1048576,
 			heapAfterMB: after / 1048576,

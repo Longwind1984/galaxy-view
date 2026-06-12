@@ -2,7 +2,9 @@ export interface GraphNode {
 	id: string; // vault path；未解析为 "unresolved:<名字>"
 	name: string;
 	folderTop: string; // 顶层文件夹；根目录 ''；未解析 '__unresolved__'
-	degree: number;
+	degree: number; // 出 + 入
+	inDegree: number;
+	outDegree: number;
 	unresolved: boolean;
 }
 

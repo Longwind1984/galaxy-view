@@ -1,5 +1,30 @@
 import { Color } from 'three';
 import { hash32 } from '../data/seed';
+import type { GraphNode } from '../types';
+import type { ColorGroup } from '../settings/graphJsonImport';
+
+export type NodeColorFn = (node: GraphNode) => Color;
+
+/**
+ * 用户的 2D 图谱配色 → 节点调色函数。
+ * 语义对齐自带图谱：path: 前缀匹配、自上而下首个命中生效；无命中走 hash 回退调色板。
+ */
+export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
+	const parsed = groups.map((g) => ({
+		prefix: g.query.startsWith('path:') ? g.query.slice(5).trim() : null,
+		raw: g.query,
+		color: new Color(g.color),
+	}));
+	return (node) => {
+		if (node.unresolved) return UNRESOLVED;
+		for (const g of parsed) {
+			if (g.prefix !== null ? node.id.startsWith(g.prefix) : node.id.includes(g.raw)) return g.color;
+		}
+		return folderColor(node.folderTop, false);
+	};
+}
+
+export const fallbackColorFn: NodeColorFn = (node) => folderColor(node.folderTop, node.unresolved);
 
 // Obsidian 标准色族 hsl(h, 60%, 60%) 的色相轮（与 Rick 的 9 组配色同族）；
 // M2 接 graph.json 真实 colorGroups，本表是无配置时的回退

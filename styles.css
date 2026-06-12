@@ -1,4 +1,4 @@
-/* Galaxy View — 视图与控制面板（深空暗玻璃，方向 A 风格基线） */
+/* Galaxy View — 视图、控制面板、浮层（深空 gx-theme-dark / 晨昼 gx-theme-light） */
 
 .galaxy-view-content {
 	padding: 0;
@@ -11,19 +11,37 @@
 	inset: 0;
 }
 
+.galaxy-view-canvas:focus {
+	outline: none;
+}
+
+/* ---------- 控制面板 ---------- */
+
 .galaxy-panel {
 	position: absolute;
 	top: 10px;
 	left: 10px;
-	z-index: 10;
-	width: 248px;
+	z-index: 12;
+	width: 252px;
 	border-radius: 10px;
+	font-size: 12px;
+	user-select: none;
+	max-height: calc(100% - 20px);
+	overflow-y: auto;
+}
+
+.galaxy-panel.gx-theme-dark {
 	background: rgba(10, 14, 24, 0.74);
 	backdrop-filter: blur(16px);
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	color: #e8ecf6;
-	font-size: 12px;
-	user-select: none;
+}
+
+.galaxy-panel.gx-theme-light {
+	background: rgba(252, 250, 245, 0.82);
+	backdrop-filter: blur(16px);
+	border: 1px solid rgba(31, 41, 51, 0.12);
+	color: #1f2933;
 }
 
 .galaxy-panel-header {
@@ -37,7 +55,7 @@
 .galaxy-panel-stats {
 	font-family: var(--font-monospace);
 	font-size: 11px;
-	color: #aeb8d0;
+	opacity: 0.75;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -50,8 +68,9 @@
 	padding: 0;
 	line-height: 1;
 	background: transparent;
-	border: 1px solid rgba(255, 255, 255, 0.14);
-	color: #e8ecf6;
+	border: 1px solid currentColor;
+	color: inherit;
+	opacity: 0.6;
 	border-radius: 6px;
 	cursor: pointer;
 	box-shadow: none;
@@ -66,43 +85,15 @@
 }
 
 .galaxy-panel-section {
-	margin-top: 6px;
+	margin-top: 4px;
 }
 
 .galaxy-panel-section-title {
 	font-size: 11px;
 	font-weight: 600;
-	color: #8e99b3;
+	opacity: 0.55;
 	letter-spacing: 0.05em;
-	margin: 6px 0 2px;
-}
-
-.galaxy-panel-slider {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 3px 0;
-}
-
-.galaxy-panel-label {
-	flex: 0 0 64px;
-	color: #c6cede;
-}
-
-.galaxy-panel-slider input[type='range'] {
-	flex: 1;
-	min-width: 0;
-	height: 14px;
-	accent-color: #7f9bff;
-	background: transparent;
-}
-
-.galaxy-panel-value {
-	flex: 0 0 44px;
-	text-align: right;
-	font-family: var(--font-monospace);
-	font-size: 11px;
-	color: #aeb8d0;
+	margin: 8px 0 2px;
 }
 
 .galaxy-panel-row {
@@ -115,26 +106,297 @@
 	flex: 1;
 	font-size: 11px;
 	padding: 3px 8px;
-	background: rgba(255, 255, 255, 0.06);
-	border: 1px solid rgba(255, 255, 255, 0.12);
-	color: #e8ecf6;
+	background: rgba(127, 127, 127, 0.12);
+	border: 1px solid rgba(127, 127, 127, 0.25);
+	color: inherit;
 	border-radius: 6px;
 	cursor: pointer;
 	box-shadow: none;
 }
 
 .galaxy-panel-row button:hover {
-	background: rgba(255, 255, 255, 0.12);
+	background: rgba(127, 127, 127, 0.25);
 }
 
 .galaxy-panel-dev {
 	margin-top: 10px;
-	border-top: 1px solid rgba(255, 255, 255, 0.08);
+	border-top: 1px solid rgba(127, 127, 127, 0.2);
 	padding-top: 6px;
 }
 
 .galaxy-panel-dev summary {
 	font-size: 11px;
-	color: #8e99b3;
+	opacity: 0.6;
 	cursor: pointer;
+}
+
+.galaxy-panel-help {
+	margin-top: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	font-size: 11px;
+	opacity: 0.8;
+}
+
+/* ---------- Lightroom 式滑杆 ---------- */
+
+.gx-slider {
+	padding: 4px 0 2px;
+}
+
+.gx-slider-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+}
+
+.gx-slider-label {
+	opacity: 0.85;
+}
+
+.gx-slider-value {
+	font-family: var(--font-monospace);
+	font-size: 11px;
+	opacity: 0.9;
+}
+
+.gx-slider-value.is-default {
+	opacity: 0.45;
+}
+
+.gx-slider-track {
+	position: relative;
+	height: 18px;
+	cursor: ew-resize;
+	touch-action: none;
+}
+
+.gx-slider-rail {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 8px;
+	height: 2px;
+	border-radius: 1px;
+	background: currentColor;
+	opacity: 0.18;
+}
+
+.gx-slider-fill {
+	position: absolute;
+	top: 8px;
+	height: 2px;
+	border-radius: 1px;
+	background: #7f9bff;
+}
+
+.gx-theme-light .gx-slider-fill {
+	background: #3a5fd9;
+}
+
+.gx-slider-notch {
+	position: absolute;
+	left: 50%;
+	top: 4px;
+	width: 1.5px;
+	height: 10px;
+	margin-left: -0.75px;
+	background: currentColor;
+	opacity: 0.4;
+}
+
+.gx-slider-thumb {
+	position: absolute;
+	top: 4px;
+	width: 10px;
+	height: 10px;
+	margin-left: -5px;
+	border-radius: 50%;
+	background: #e8ecf6;
+	border: 1.5px solid #7f9bff;
+	pointer-events: none;
+}
+
+.gx-theme-light .gx-slider-thumb {
+	background: #fcfaf5;
+	border-color: #3a5fd9;
+}
+
+.gx-slider-bounds {
+	display: flex;
+	justify-content: space-between;
+	font-family: var(--font-monospace);
+	font-size: 9px;
+	opacity: 0.38;
+	margin-top: -2px;
+}
+
+/* ---------- 浮层：标签与卡片 ---------- */
+
+.gx-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 8;
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.gx-label {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform: translate3d(-1000px, -1000px, 0);
+	translate: -50% -100%;
+	font-size: 11px;
+	white-space: nowrap;
+	color: #dbe2f2;
+	text-shadow: 0 0 6px rgba(0, 0, 6, 0.95);
+	transition: opacity 150ms ease;
+}
+
+.gx-daylight .gx-label {
+	color: #1f2933;
+	text-shadow: 0 0 6px rgba(246, 244, 239, 0.95);
+}
+
+.gx-label-hover,
+.gx-label-neighbor {
+	font-size: 11px;
+}
+
+.gx-label-hover {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.gx-card {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 280px;
+	transform: translate3d(-1000px, -1000px, 0);
+	pointer-events: auto;
+	border-radius: 10px;
+	padding: 12px 14px;
+	font-size: 12px;
+	background: rgba(10, 14, 24, 0.78);
+	backdrop-filter: blur(16px);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	color: #e8ecf6;
+}
+
+.gx-daylight .gx-card {
+	background: rgba(252, 250, 245, 0.88);
+	border: 1px solid rgba(31, 41, 51, 0.14);
+	color: #1f2933;
+}
+
+.gx-card-title {
+	font-size: 15px;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.gx-card-meta {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	opacity: 0.7;
+}
+
+.gx-card-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.gx-card-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.gx-card-tag {
+	font-size: 10px;
+	padding: 1px 7px;
+	border-radius: 8px;
+	background: rgba(127, 155, 255, 0.18);
+	border: 1px solid rgba(127, 155, 255, 0.3);
+}
+
+.gx-card-stats {
+	margin-top: 8px;
+	font-size: 11px;
+	opacity: 0.75;
+}
+
+.gx-card-snippet {
+	margin-top: 6px;
+	font-size: 11px;
+	line-height: 1.5;
+	opacity: 0.65;
+	max-height: 50px;
+	overflow: hidden;
+}
+
+.gx-card-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 10px;
+}
+
+.gx-card-actions button {
+	flex: 1;
+	font-size: 11px;
+	padding: 3px 8px;
+	background: rgba(127, 127, 127, 0.12);
+	border: 1px solid rgba(127, 127, 127, 0.25);
+	color: inherit;
+	border-radius: 6px;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.gx-search-path {
+	font-size: 11px;
+	color: var(--text-muted);
+}
+
+/* ---------- 开场遮罩 ---------- */
+
+.gx-mask {
+	position: absolute;
+	inset: 0;
+	z-index: 20;
+	background: #000003;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: opacity 600ms ease;
+}
+
+.gx-mask.is-fading {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.gx-mask-text {
+	color: #aeb8d0;
+	font-size: 13px;
+	letter-spacing: 0.3em;
+	animation: gx-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes gx-pulse {
+	0%,
+	100% {
+		opacity: 0.35;
+	}
+	50% {
+		opacity: 0.9;
+	}
 }

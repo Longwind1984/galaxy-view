@@ -17,7 +17,7 @@ export class MainThreadForceLayout implements LayoutEngine {
 	private degrees: number[] = [];
 	private settled = true;
 
-	init(data: GraphData, positions: Float32Array, params: LayoutParams): void {
+	init(data: GraphData, positions: Float32Array, params: LayoutParams, initialAlpha = 1): void {
 		this.dispose();
 		this.positions = positions;
 		this.degrees = data.nodes.map((n) => Math.max(n.degree, 1));
@@ -38,6 +38,7 @@ export class MainThreadForceLayout implements LayoutEngine {
 			.force('y', forceY<LNode>(0).strength(params.centerPull))
 			.force('z', forceZ<LNode>(0).strength(params.centerPull))
 			.stop();
+		this.sim.alpha(initialAlpha);
 		this.settled = false;
 	}
 

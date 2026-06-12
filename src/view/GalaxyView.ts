@@ -33,6 +33,7 @@ export class GalaxyView extends ItemView {
 	async onOpen(): Promise<void> {
 		this.contentEl.empty();
 		this.contentEl.addClass('galaxy-view-content');
+		this.registerEvent(this.app.workspace.on('css-change', () => this.controller?.onCssChange()));
 		// WebGL 初始化推迟到首个非零尺寸（deferred/恢复布局下 onOpen 时可能 0×0）
 		this.tryInit();
 	}

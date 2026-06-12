@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Spherical, Vector3 } from 'three';
+import { MOUSE, PerspectiveCamera, Spherical, Vector3 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CRUISE, FLY_TO } from '../constants';
 
@@ -16,9 +16,21 @@ interface Tween {
 	onDone?: () => void;
 }
 
+export interface CameraHooks {
+	/** F 键：飞向当前选中（无选中则忽略） */
+	onFlyToSelected: () => void;
+	/** R 键：回总览 */
+	onResetView: () => void;
+}
+
+const FLY_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e']);
+
 /**
- * 镜头导演：OrbitControls 用户输入 + 飞行 tween + 闲置巡航。
- * 巡航用两个不可通约周期（90s 仰角 / 60s 半径）→ 轨迹永不复现，「飞船」而非「转盘」。
+ * 镜头导演：三层交互自由度（G1 反馈「像 FPS / Google Earth 一样移动」）
+ * - 轨道基底：左键拖环绕 · 右键拖 / Ctrl(⌘)+左键拖 平移 · 滚轮缩放
+ * - FPS 飞行：WASD 前后左右 + Q/E 升降，速度随离目标距离自适应，Shift ×3
+ * - 编排：点击/搜索飞行 tween、闲置巡航（双不可通约周期）、F 飞向选中、R 回总览
+ * 按键只在画布聚焦时生效（tabindex），不抢 Obsidian 全局快捷键。
  */
 export class CameraDirector {
 	cruiseEnabled = true;
@@ -28,41 +40,127 @@ export class CameraDirector {
 	private lastInputAt = 0;
 	private cruiseAnchor: Spherical | null = null;
 	private cruiseT = 0;
+	private pressed = new Set<string>();
+	private shiftHeld = false;
 	private tmpOffset = new Vector3();
 	private tmpSph = new Spherical();
+	private tmpDir = new Vector3();
+	private tmpRight = new Vector3();
 	private disposeFns: (() => void)[] = [];
 
 	constructor(
 		private camera: PerspectiveCamera,
-		dom: HTMLElement,
+		private dom: HTMLElement,
+		private hooks: CameraHooks,
 	) {
 		this.controls = new OrbitControls(camera, dom);
 		this.controls.enableDamping = true;
 		this.controls.dampingFactor = 0.08;
 		this.lastInputAt = performance.now();
 
-		const onInput = () => {
-			this.lastInputAt = performance.now();
-			this.cruiseAnchor = null;
-			if (this.tween) this.tween = null; // 任何输入打断飞行（停在当前位置，不跳变）
-		};
-		for (const ev of ['pointerdown', 'wheel', 'touchstart'] as const) {
-			dom.addEventListener(ev, onInput, { passive: true });
-			this.disposeFns.push(() => dom.removeEventListener(ev, onInput));
-		}
+		dom.tabIndex = 0; // 画布可聚焦 → 键盘飞行不影响 Obsidian 其他快捷键
+		this.bindPointer();
+		this.bindKeys();
 	}
 
 	get target(): Vector3 {
 		return this.controls.target;
 	}
 
-	/** 初始机位：质心外 2.2×半径、仰角 +18°（M2 换成完整开场镜头） */
+	private markInput(): void {
+		this.lastInputAt = performance.now();
+		this.cruiseAnchor = null;
+		this.tween = null; // 任何输入打断飞行（停在当前位置，不跳变）
+	}
+
+	private bindPointer(): void {
+		const onDown = (e: PointerEvent) => {
+			this.dom.focus();
+			// Google Earth 式：Ctrl/⌘ + 左键拖 = 平移（右键拖原生就是平移）
+			this.controls.mouseButtons.LEFT = e.ctrlKey || e.metaKey ? MOUSE.PAN : MOUSE.ROTATE;
+			this.markInput();
+		};
+		const onInput = () => this.markInput();
+		this.dom.addEventListener('pointerdown', onDown, { capture: true });
+		this.dom.addEventListener('wheel', onInput, { passive: true });
+		this.dom.addEventListener('touchstart', onInput, { passive: true });
+		this.disposeFns.push(() => {
+			this.dom.removeEventListener('pointerdown', onDown, { capture: true });
+			this.dom.removeEventListener('wheel', onInput);
+			this.dom.removeEventListener('touchstart', onInput);
+		});
+	}
+
+	private bindKeys(): void {
+		const onKeyDown = (e: KeyboardEvent) => {
+			const k = e.key.toLowerCase();
+			this.shiftHeld = e.shiftKey;
+			if (FLY_KEYS.has(k)) {
+				this.pressed.add(k);
+				this.markInput();
+				e.preventDefault();
+				e.stopPropagation();
+			} else if (k === 'f') {
+				this.hooks.onFlyToSelected();
+				e.preventDefault();
+			} else if (k === 'r') {
+				this.hooks.onResetView();
+				e.preventDefault();
+			}
+		};
+		const onKeyUp = (e: KeyboardEvent) => {
+			this.shiftHeld = e.shiftKey;
+			this.pressed.delete(e.key.toLowerCase());
+		};
+		const onBlur = () => this.pressed.clear();
+		this.dom.addEventListener('keydown', onKeyDown);
+		this.dom.addEventListener('keyup', onKeyUp);
+		this.dom.addEventListener('blur', onBlur);
+		this.disposeFns.push(() => {
+			this.dom.removeEventListener('keydown', onKeyDown);
+			this.dom.removeEventListener('keyup', onKeyUp);
+			this.dom.removeEventListener('blur', onBlur);
+		});
+	}
+
+	/** WASD/QE：相机与轨道目标同步平移，飞完仍可正常环绕 */
+	private applyFly(deltaS: number): boolean {
+		if (this.pressed.size === 0) return false;
+		const dist = this.camera.position.distanceTo(this.controls.target);
+		const speed = Math.min(Math.max(dist * 0.8, 10), 600) * (this.shiftHeld ? 3 : 1);
+		const fwd = this.camera.getWorldDirection(this.tmpDir);
+		this.tmpRight.crossVectors(fwd, this.camera.up).normalize();
+		const move = new Vector3();
+		if (this.pressed.has('w')) move.add(fwd);
+		if (this.pressed.has('s')) move.sub(fwd);
+		if (this.pressed.has('d')) move.add(this.tmpRight);
+		if (this.pressed.has('a')) move.sub(this.tmpRight);
+		if (this.pressed.has('e')) move.y += 1;
+		if (this.pressed.has('q')) move.y -= 1;
+		if (move.lengthSq() < 1e-8) return false;
+		move.normalize().multiplyScalar(speed * deltaS);
+		this.camera.position.add(move);
+		this.controls.target.add(move);
+		this.lastInputAt = performance.now();
+		return true;
+	}
+
+	/** 初始机位：质心外 2.2×半径、仰角 +18° */
 	setInitialFraming(graphRadius: number): void {
-		const d = graphRadius * 2.2;
-		const elev = (18 * Math.PI) / 180;
-		this.camera.position.set(d * Math.cos(elev), d * Math.sin(elev), d * 0.35);
+		this.camera.position.copy(this.framingPosition(graphRadius));
 		this.controls.target.set(0, 0, 0);
 		this.controls.update();
+	}
+
+	private framingPosition(graphRadius: number): Vector3 {
+		const d = graphRadius * 2.2;
+		const elev = (18 * Math.PI) / 180;
+		return new Vector3(d * Math.cos(elev), d * Math.sin(elev), d * 0.35);
+	}
+
+	/** R：平滑回总览 */
+	resetView(graphRadius: number): void {
+		this.startTween(this.framingPosition(graphRadius), new Vector3(0, 0, 0), 1200);
 	}
 
 	flyTo(nodePos: Vector3, nodeRadius: number, onDone?: () => void): void {
@@ -74,16 +172,19 @@ export class CameraDirector {
 		this.tmpSph.theta += FLY_TO.azimuthOffsetRad;
 		this.tmpSph.radius = dist;
 		const toPos = nodePos.clone().add(new Vector3().setFromSpherical(this.tmpSph));
-
 		const travel = this.camera.position.distanceTo(toPos);
 		const durMs = Math.min(Math.max(FLY_TO.minMs + FLY_TO.msPerWorldUnit * travel, FLY_TO.minMs), FLY_TO.maxMs);
+		this.startTween(toPos, nodePos.clone(), durMs, onDone);
+	}
+
+	private startTween(toPos: Vector3, toTarget: Vector3, durMs: number, onDone?: () => void): void {
 		this.tween = {
 			t0: performance.now(),
 			durMs,
 			fromPos: this.camera.position.clone(),
 			toPos,
 			fromTarget: this.controls.target.clone(),
-			toTarget: nodePos.clone(),
+			toTarget,
 		};
 		if (onDone) this.tween.onDone = onDone;
 	}
@@ -105,8 +206,10 @@ export class CameraDirector {
 			return false;
 		}
 
+		const flying = this.applyFly(deltaS);
+
 		const idleMs = now - this.lastInputAt;
-		if (this.cruiseEnabled && idleMs > CRUISE.resumeDelayMs) {
+		if (!flying && this.cruiseEnabled && idleMs > CRUISE.resumeDelayMs) {
 			// 0→满速渐起，无顿挫
 			const ramp = Math.min((idleMs - CRUISE.resumeDelayMs) / CRUISE.rampUpMs, 1);
 			if (!this.cruiseAnchor) {
@@ -134,6 +237,7 @@ export class CameraDirector {
 
 	dispose(): void {
 		this.tween = null;
+		this.pressed.clear();
 		for (const fn of this.disposeFns) fn();
 		this.disposeFns = [];
 		this.controls.dispose();

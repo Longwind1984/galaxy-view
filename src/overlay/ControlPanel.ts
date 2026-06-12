@@ -1,41 +1,35 @@
 import type { GalaxySettings } from '../settings';
+import { DEFAULT_SETTINGS } from '../settings';
+import { Slider } from './Slider';
 
 export interface ControlPanelCallbacks {
 	onBloom: () => void;
 	onPhysics: () => void;
 	onLook: () => void;
 	onCruise: (on: boolean) => void;
+	onPreset: () => void;
+	onShowUnresolved: (on: boolean) => void;
+	onImportColors: () => void;
+	onSearch: () => void;
 	onReset: () => void;
 	runScenario: (s: 'S1' | 'S2' | 'S3') => void;
 }
 
-interface SliderSpec {
-	label: string;
-	min: number;
-	max: number;
-	step: number;
-	get: () => number;
-	set: (v: number) => void;
-	fmt?: (v: number) => string;
-	onInput: () => void;
-}
-
-/**
- * 画布左上角的参数面板（可玩性即生产力）。
- * 滑杆直接改 settings 对象并即时生效；持久化由调用方在回调里做。
- */
+/** 画布左上角的参数面板。滑杆为 Lightroom 式（默认值居中 + 限位可视化 + 双击回默认）。 */
 export class ControlPanel {
 	readonly statsEl: HTMLElement;
 	private root: HTMLElement;
-	private refreshers: (() => void)[] = [];
+	private sliders: Slider[] = [];
 	private cruiseBtn: HTMLButtonElement | null = null;
+	private presetBtn: HTMLButtonElement | null = null;
+	private unresolvedBtn: HTMLButtonElement | null = null;
 
 	constructor(
 		parent: HTMLElement,
 		private settings: GalaxySettings,
-		private cb: ControlPanelCallbacks,
+		cb: ControlPanelCallbacks,
 	) {
-		this.root = parent.createDiv({ cls: 'galaxy-panel' });
+		this.root = parent.createDiv({ cls: 'galaxy-panel gx-theme-dark' });
 
 		const header = this.root.createDiv({ cls: 'galaxy-panel-header' });
 		this.statsEl = header.createDiv({ cls: 'galaxy-panel-stats', text: '…' });
@@ -48,38 +42,80 @@ export class ControlPanel {
 		});
 
 		const s = this.settings;
+		const d = DEFAULT_SETTINGS;
+		const addSection = (title: string) => {
+			const sec = body.createDiv({ cls: 'galaxy-panel-section' });
+			sec.createDiv({ cls: 'galaxy-panel-section-title', text: title });
+			return sec;
+		};
 
-		this.section(body, '辉光', [
-			{ label: '强度', min: 0, max: 2.5, step: 0.05, get: () => s.bloom.strength, set: (v) => (s.bloom.strength = v), onInput: cb.onBloom },
-			{ label: '扩散', min: 0, max: 1.2, step: 0.05, get: () => s.bloom.radius, set: (v) => (s.bloom.radius = v), onInput: cb.onBloom },
-			{ label: '阈值', min: 0, max: 1, step: 0.05, get: () => s.bloom.threshold, set: (v) => (s.bloom.threshold = v), onInput: cb.onBloom },
-		]);
+		const bloomSec = addSection('辉光');
+		this.sliders.push(
+			new Slider(bloomSec, { label: '强度', min: 0, max: 2.5, step: 0.05, defaultValue: d.bloom.strength, get: () => s.bloom.strength, set: (v) => (s.bloom.strength = v), onInput: cb.onBloom }),
+			new Slider(bloomSec, { label: '扩散', min: 0, max: 1.2, step: 0.05, defaultValue: d.bloom.radius, get: () => s.bloom.radius, set: (v) => (s.bloom.radius = v), onInput: cb.onBloom }),
+			new Slider(bloomSec, { label: '阈值', min: 0, max: 1, step: 0.05, defaultValue: d.bloom.threshold, get: () => s.bloom.threshold, set: (v) => (s.bloom.threshold = v), onInput: cb.onBloom }),
+		);
 
-		this.section(body, '力学', [
-			{ label: '斥力', min: 20, max: 400, step: 5, get: () => s.physics.repel, set: (v) => (s.physics.repel = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics },
-			{ label: '链接距离', min: 20, max: 200, step: 5, get: () => s.physics.linkDistance, set: (v) => (s.physics.linkDistance = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics },
-			{ label: '链接强度', min: 0.1, max: 2, step: 0.1, get: () => s.physics.linkStrength, set: (v) => (s.physics.linkStrength = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onPhysics },
-			{ label: '向心力', min: 0, max: 0.2, step: 0.005, get: () => s.physics.centerPull, set: (v) => (s.physics.centerPull = v), fmt: (v) => v.toFixed(3), onInput: cb.onPhysics },
-		]);
+		const phySec = addSection('力学');
+		this.sliders.push(
+			new Slider(phySec, { label: '斥力', min: 20, max: 400, step: 5, defaultValue: d.physics.repel, get: () => s.physics.repel, set: (v) => (s.physics.repel = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: '链接距离', min: 20, max: 200, step: 5, defaultValue: d.physics.linkDistance, get: () => s.physics.linkDistance, set: (v) => (s.physics.linkDistance = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: '链接强度', min: 0.1, max: 2, step: 0.1, defaultValue: d.physics.linkStrength, get: () => s.physics.linkStrength, set: (v) => (s.physics.linkStrength = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onPhysics }),
+			new Slider(phySec, { label: '向心力', min: 0, max: 0.2, step: 0.005, defaultValue: d.physics.centerPull, get: () => s.physics.centerPull, set: (v) => (s.physics.centerPull = v), fmt: (v) => v.toFixed(3), onInput: cb.onPhysics }),
+		);
 
-		this.section(body, '外观', [
-			{ label: '节点大小', min: 0.3, max: 2.5, step: 0.05, get: () => s.look.nodeSize, set: (v) => (s.look.nodeSize = v), fmt: (v) => `${v.toFixed(2)}×`, onInput: cb.onLook },
-			{ label: '链接透明度', min: 0.02, max: 0.6, step: 0.01, get: () => s.look.linkOpacity, set: (v) => (s.look.linkOpacity = v), onInput: cb.onLook },
-		]);
+		const lookSec = addSection('外观');
+		this.sliders.push(
+			new Slider(lookSec, { label: '节点大小', min: 0.3, max: 2.5, step: 0.05, defaultValue: d.look.nodeSize, get: () => s.look.nodeSize, set: (v) => (s.look.nodeSize = v), fmt: (v) => `${v.toFixed(2)}×`, onInput: cb.onLook }),
+			new Slider(lookSec, { label: '链接透明度', min: 0.02, max: 0.6, step: 0.01, defaultValue: d.look.linkOpacity, get: () => s.look.linkOpacity, set: (v) => (s.look.linkOpacity = v), onInput: cb.onLook }),
+		);
 
-		const btnRow = body.createDiv({ cls: 'galaxy-panel-row' });
-		this.cruiseBtn = btnRow.createEl('button', { text: s.cruise ? '巡航：开' : '巡航：关' });
+		const row1 = body.createDiv({ cls: 'galaxy-panel-row' });
+		const searchBtn = row1.createEl('button', { text: '搜索' });
+		searchBtn.addEventListener('click', cb.onSearch);
+		this.cruiseBtn = row1.createEl('button', { text: s.cruise ? '巡航：开' : '巡航：关' });
 		this.cruiseBtn.addEventListener('click', () => {
 			s.cruise = !s.cruise;
 			this.cruiseBtn?.setText(s.cruise ? '巡航：开' : '巡航：关');
 			cb.onCruise(s.cruise);
 		});
-		const resetBtn = btnRow.createEl('button', { text: '重置默认' });
+
+		const row2 = body.createDiv({ cls: 'galaxy-panel-row' });
+		this.presetBtn = row2.createEl('button', { text: this.presetLabel() });
+		this.presetBtn.addEventListener('click', () => {
+			s.preset = s.preset === 'deep-space' ? 'adaptive' : 'deep-space';
+			this.presetBtn?.setText(this.presetLabel());
+			cb.onPreset();
+		});
+		const resetBtn = row2.createEl('button', { text: '重置默认' });
 		resetBtn.addEventListener('click', () => {
 			cb.onReset();
 			this.refreshAll();
-			this.cruiseBtn?.setText(this.settings.cruise ? '巡航：开' : '巡航：关');
 		});
+
+		const row3 = body.createDiv({ cls: 'galaxy-panel-row' });
+		this.unresolvedBtn = row3.createEl('button', { text: s.showUnresolved ? '未解析：显示' : '未解析：隐藏' });
+		this.unresolvedBtn.addEventListener('click', () => {
+			s.showUnresolved = !s.showUnresolved;
+			this.unresolvedBtn?.setText(s.showUnresolved ? '未解析：显示' : '未解析：隐藏');
+			cb.onShowUnresolved(s.showUnresolved);
+		});
+		const importBtn = row3.createEl('button', { text: '导入二维图谱配色' });
+		importBtn.addEventListener('click', cb.onImportColors);
+
+		const help = body.createEl('details', { cls: 'galaxy-panel-dev' });
+		help.createEl('summary', { text: '操作说明' });
+		const helpBody = help.createDiv({ cls: 'galaxy-panel-help' });
+		for (const line of [
+			'左键拖拽 = 环绕 · 滚轮 = 缩放',
+			'右键拖 / Ctrl(⌘)+左键拖 = 平移',
+			'WASD = 平飞 · Q/E = 升降 · Shift = 加速',
+			'点击节点 = 选中并飞过去 · ESC = 取消',
+			'F = 飞向选中 · R = 回总览',
+			'双击滑杆 = 回默认值',
+		]) {
+			helpBody.createDiv({ text: line });
+		}
 
 		const dev = body.createEl('details', { cls: 'galaxy-panel-dev' });
 		dev.createEl('summary', { text: '基准（开发）' });
@@ -90,38 +126,25 @@ export class ControlPanel {
 		}
 	}
 
-	private section(parent: HTMLElement, title: string, sliders: SliderSpec[]): void {
-		const sec = parent.createDiv({ cls: 'galaxy-panel-section' });
-		sec.createDiv({ cls: 'galaxy-panel-section-title', text: title });
-		for (const spec of sliders) {
-			const row = sec.createDiv({ cls: 'galaxy-panel-slider' });
-			row.createSpan({ cls: 'galaxy-panel-label', text: spec.label });
-			const input = row.createEl('input', { type: 'range' });
-			input.min = String(spec.min);
-			input.max = String(spec.max);
-			input.step = String(spec.step);
-			const valueEl = row.createSpan({ cls: 'galaxy-panel-value' });
-			const fmt = spec.fmt ?? ((v: number) => v.toFixed(2));
-			const refresh = () => {
-				input.value = String(spec.get());
-				valueEl.setText(fmt(spec.get()));
-			};
-			refresh();
-			this.refreshers.push(refresh);
-			input.addEventListener('input', () => {
-				spec.set(Number(input.value));
-				valueEl.setText(fmt(spec.get()));
-				spec.onInput();
-			});
-		}
+	private presetLabel(): string {
+		return this.settings.preset === 'deep-space' ? '视觉：深空' : '视觉：随主题';
 	}
 
 	refreshAll(): void {
-		for (const r of this.refreshers) r();
+		for (const sl of this.sliders) sl.refresh();
+		this.cruiseBtn?.setText(this.settings.cruise ? '巡航：开' : '巡航：关');
+		this.presetBtn?.setText(this.presetLabel());
+		this.unresolvedBtn?.setText(this.settings.showUnresolved ? '未解析：显示' : '未解析：隐藏');
+	}
+
+	setPanelTheme(cls: 'gx-theme-dark' | 'gx-theme-light'): void {
+		this.root.removeClass('gx-theme-dark');
+		this.root.removeClass('gx-theme-light');
+		this.root.addClass(cls);
 	}
 
 	dispose(): void {
 		this.root.remove();
-		this.refreshers = [];
+		this.sliders = [];
 	}
 }

@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-06-12 · M2 主体落地：控制面板重设计 + 3D 交互自由度 + 四件套 + 双视觉方向（G2 待 Rick 裁决）
+
+### 做了什么
+响应 Rick 三条反馈并执行 M2 全量：
+1. **滑杆重做（Lightroom 式）**：默认值锚定轨道几何中心（左右半轴分段线性映射）、中心刻痕标默认位、轨道两端常驻 min/max 限位值、从刻痕到滑块的偏离填充条、**双击回默认**、当前值=默认时读数变淡。
+2. **3D 交互自由度**：左键拖环绕（基底）+ **右键/Ctrl(⌘)+左键拖平移**（Google Earth 式）+ **WASD/QE 飞行**（速度随离目标距离自适应、Shift×3）+ F 飞向选中 + R 平滑回总览 + ESC 取消选中；按键仅画布聚焦时生效；面板新增「操作说明」折叠区。
+3. **M2 四件套**：graph.json 九组真配色自动导入（int→hex、trim 尾随空格、path: 前缀首匹配；可手动重导）；SuggestModal 模糊搜索→选中+飞行（空查询=枢纽 top20「星座导览」）；DOM 浮层（top-14 枢纽常驻标签距离淡出 + hover 标签 + 选中卡片：路径色点/出入链/修改日期/异步摘要/打开笔记/聚焦）；聚焦模式（非邻居 280ms 淡出至 0.12 + 选中链接独立高亮层 + 主链接网压暗）。
+4. **双视觉方向**（G2 门的料）：token 全部集中 presets.ts——A「深空」恒暗；B「随主题」深色共用 A、浅色「晨昼制图室」（暖纸底/尘埃微粒替星空/bloom 强制关/墨水节点带 rim/铅笔链接/NoToneMapping）；css-change 自动切换；面板一键 A/B。
+5. **暖启动 + 开场镜头**：沉降坐标缓存进 data.json（覆盖率≥80% 时重开秒成形 + alpha 0.06 轻整理），暖启动时播放「构建星图…」遮罩 → 600ms 揭幕 → 镜头从图内部 3.2s 拉出 + 辉光 1.8×→设置值回落；冷启动直接看星系成形动画。
+
+### 已验证（Obsidian 实机）
+新面板渲染正确（限位/刻痕/分区/按钮全在）、61fps/19-20 calls 保持、九组真配色生效（04AI 绿团、Cubox 橙团肉眼可辨）、枢纽标签浮现、设置持久化（面板载入 Rick 自调的辉光值）、点击→飞行→卡片（含异步摘要）→聚焦变暗→选中链接高亮全链路 OK。lint 0 错 / 5 单测绿 / 624KB。
+
+### 未尽事项（G2 与 M3 入口）
+- **G2 门待 Rick**：app 切浅色主题 + 面板「视觉：随主题」→ 对比晨昼制图室 vs 深空，用眼睛定默认方向。
+- WASD 飞行/Ctrl 平移/搜索弹窗/R 回总览未实机验证（键盘交互不便远程模拟）——Rick 上手 1 分钟即可覆盖。
+- 晨昼模式只在代码层完成，未实机看过（需切浅色主题）；微粒漂移动画是简化版（仅旋转）。
+- S2 基准现在会先清空暖启动缓存再跑（保证冷布局语义）。
+- bench 的 layout.step 运行时替换 hack 仍在（M3 改正式钩子）。
+
+### 文件级变更清单
+- 新增 `src/overlay/{Slider,OverlayManager}.ts`、`src/settings/graphJsonImport.ts`、`src/render/presets.ts`、`src/view/SearchModal.ts`
+- 重写 `src/overlay/ControlPanel.ts`、`src/render/{AggregateRenderer,shaders}.ts`（聚焦 aDim/选中高亮层/tokens/晨昼 shader 变体/motes）、`src/interactions/CameraDirector.ts`（飞行/平移/F/R）、`src/view/GraphController.ts`（全量接线）、`styles.css`
+- 改 `src/{settings,types,constants}.ts`（preset/colorGroups/positionCache/showUnresolved、in/outDegree）、`src/data/buildGraph.ts`、`src/layout/*`（initialAlpha）、`src/view/GalaxyView.ts`（css-change 转发）、`src/main.ts`（搜索命令）
+
+---
+
 ## 2026-06-12 · M1.5 控制面板：响应 G1 反馈（辉光过曝 + 可玩性不足）
 
 ### 做了什么

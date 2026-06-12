@@ -23,6 +23,14 @@ export default class GalaxyViewPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'search',
+			name: '搜索星系节点并飞行',
+			callback: () => {
+				void this.activateView().then((view) => view?.controller?.openSearch());
+			},
+		});
+
+		this.addCommand({
 			id: 'bench-suite',
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- M0 开发期命令，S1/S2/S3 是基准场景代号，发布前移除
 			name: 'M0 基准：依次跑 S1 / S2 / S3',

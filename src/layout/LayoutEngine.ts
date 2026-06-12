@@ -8,7 +8,8 @@ import type { GraphData, LayoutParams } from '../types';
 export interface LayoutEngine {
 	/** x,y,z × n；引擎原地写入，渲染器直接读 */
 	readonly positions: Float32Array;
-	init(data: GraphData, positions: Float32Array, params: LayoutParams): void;
+	/** initialAlpha: 1=完整冷布局；低值（如 0.06 暖启动 / 0.3 增量更新）= 温和整理 */
+	init(data: GraphData, positions: Float32Array, params: LayoutParams, initialAlpha?: number): void;
 	/** 跑一个 tick；返回 false 表示已沉降 */
 	step(): boolean;
 	isSettled(): boolean;

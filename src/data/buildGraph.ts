@@ -39,6 +39,8 @@ export function buildGraph(
 			name: f.basename,
 			folderTop: topFolder(f.path),
 			degree: 0,
+			inDegree: 0,
+			outDegree: 0,
 			unresolved: false,
 		});
 	}
@@ -48,8 +50,14 @@ export function buildGraph(
 		links.push({ source: si, target: ti });
 		const s = nodes[si];
 		const t = nodes[ti];
-		if (s) s.degree++;
-		if (t) t.degree++;
+		if (s) {
+			s.degree++;
+			s.outDegree++;
+		}
+		if (t) {
+			t.degree++;
+			t.inDegree++;
+		}
 	};
 
 	for (const src of Object.keys(resolvedLinks)) {
@@ -79,6 +87,8 @@ export function buildGraph(
 						name,
 						folderTop: '__unresolved__',
 						degree: 0,
+						inDegree: 0,
+						outDegree: 0,
 						unresolved: true,
 					});
 				}

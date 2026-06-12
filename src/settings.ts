@@ -16,11 +16,19 @@ export interface LookSettings {
 	linkOpacity: number;
 }
 
+export type VisualPreset = 'deep-space' | 'adaptive';
+
 export interface GalaxySettings {
 	bloom: BloomSettings;
 	physics: PhysicsSettings;
 	look: LookSettings;
 	cruise: boolean;
+	showUnresolved: boolean;
+	preset: VisualPreset;
+	/** 从 .obsidian/graph.json 一次性导入的 2D 配色（可在面板重新导入） */
+	colorGroups: import('./settings/graphJsonImport').ColorGroup[];
+	/** 沉降坐标缓存：暖启动用（id → [x,y,z]） */
+	positionCache: Record<string, [number, number, number]>;
 }
 
 // G1 反馈后的温和默认值：阈值抬高让内部结构可见，辉光只属于亮核与亮星
@@ -29,11 +37,22 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	physics: { repel: 180, linkDistance: 80, linkStrength: 1, centerPull: 0.04 },
 	look: { nodeSize: 1, linkOpacity: 0.16 },
 	cruise: true,
+	showUnresolved: false,
+	preset: 'deep-space',
+	colorGroups: [],
+	positionCache: {},
 };
 
 export function mergeSettings(saved: unknown): GalaxySettings {
 	const d = DEFAULT_SETTINGS;
 	const s = (saved ?? {}) as Partial<Record<keyof GalaxySettings, Record<string, unknown>>>;
+	const sv = (saved ?? {}) as Partial<Record<keyof GalaxySettings, unknown>> & {
+		cruise?: unknown;
+		showUnresolved?: unknown;
+		preset?: unknown;
+		colorGroups?: unknown[];
+		positionCache?: unknown;
+	};
 	const num = (v: unknown, fallback: number) => (typeof v === 'number' && isFinite(v) ? v : fallback);
 	return {
 		bloom: {
@@ -51,7 +70,20 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 			nodeSize: num(s.look?.['nodeSize'], d.look.nodeSize),
 			linkOpacity: num(s.look?.['linkOpacity'], d.look.linkOpacity),
 		},
-		cruise: typeof (saved as { cruise?: unknown } | null)?.cruise === 'boolean' ? Boolean((saved as { cruise: boolean }).cruise) : d.cruise,
+		cruise: typeof sv.cruise === 'boolean' ? sv.cruise : d.cruise,
+		showUnresolved: typeof sv.showUnresolved === 'boolean' ? sv.showUnresolved : d.showUnresolved,
+		preset: sv.preset === 'adaptive' ? 'adaptive' : 'deep-space',
+		colorGroups: Array.isArray(sv.colorGroups)
+			? sv.colorGroups.filter(
+					(g): g is import('./settings/graphJsonImport').ColorGroup =>
+						typeof (g as { query?: unknown })?.query === 'string' &&
+						typeof (g as { color?: unknown })?.color === 'string',
+				)
+			: [],
+		positionCache:
+			sv.positionCache && typeof sv.positionCache === 'object'
+				? (sv.positionCache as Record<string, [number, number, number]>)
+				: {},
 	};
 }
 

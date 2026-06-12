@@ -16,6 +16,11 @@ export class MainThreadForceLayout implements LayoutEngine {
 	private simNodes: LNode[] = [];
 	private degrees: number[] = [];
 	private settled = true;
+	private _ticks = 0;
+
+	get ticks(): number {
+		return this._ticks;
+	}
 
 	init(data: GraphData, positions: Float32Array, params: LayoutParams, initialAlpha = 1): void {
 		this.dispose();
@@ -39,6 +44,7 @@ export class MainThreadForceLayout implements LayoutEngine {
 			.force('z', forceZ<LNode>(0).strength(params.centerPull))
 			.stop();
 		this.sim.alpha(initialAlpha);
+		this._ticks = 0;
 		this.settled = false;
 	}
 
@@ -70,6 +76,7 @@ export class MainThreadForceLayout implements LayoutEngine {
 		const sim = this.sim;
 		if (!sim || this.settled) return false;
 		sim.tick();
+		this._ticks++;
 		const pos = this.positions;
 		const nodes = this.simNodes;
 		for (let i = 0; i < nodes.length; i++) {

@@ -155,6 +155,7 @@ export class AggregateRenderer {
 				uPixelScale: { value: this.pixelScale },
 				uSizeMul: { value: this.nodeScale },
 				uLightMode: { value: this.tokens.lightMode ? 1 : 0 },
+				uMaxPoint: { value: 110 * this.renderer.getPixelRatio() },
 			},
 		});
 		this.nodePoints = new Points(this.nodeGeometry, this.nodeMaterial);

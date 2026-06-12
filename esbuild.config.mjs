@@ -21,6 +21,28 @@ const outDir = prod
 
 fs.mkdirSync(outDir, { recursive: true });
 
+// 'worker:' 前缀导入 → 独立打包成 IIFE 文本（Blob URL Worker 用）
+const inlineWorker = {
+	name: 'inline-worker',
+	setup(build) {
+		build.onResolve({ filter: /^worker:/ }, (args) => ({
+			path: path.resolve(path.dirname(args.importer), args.path.slice('worker:'.length)),
+			namespace: 'inline-worker',
+		}));
+		build.onLoad({ filter: /.*/, namespace: 'inline-worker' }, async (args) => {
+			const result = await esbuild.build({
+				entryPoints: [args.path],
+				bundle: true,
+				write: false,
+				format: 'iife',
+				target: 'es2021',
+				minify: prod,
+			});
+			return { contents: result.outputFiles[0].text, loader: 'text' };
+		});
+	},
+};
+
 const copyAssets = {
 	name: 'copy-assets',
 	setup(build) {
@@ -65,7 +87,7 @@ const context = await esbuild.context({
 	treeShaking: true,
 	outfile: path.join(outDir, 'main.js'),
 	minify: prod,
-	plugins: [copyAssets],
+	plugins: [inlineWorker, copyAssets],
 });
 
 if (prod) {

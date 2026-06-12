@@ -8,7 +8,9 @@ import { readGraphColorGroups } from '../settings/graphJsonImport';
 import type { ColorTheme } from '../render/colorThemes';
 import { GraphStore } from '../data/GraphStore';
 import { seedRadius } from '../data/seed';
+import type { LayoutEngine } from '../layout/LayoutEngine';
 import { MainThreadForceLayout } from '../layout/MainThreadForceLayout';
+import { WorkerForceLayout } from '../layout/WorkerForceLayout';
 import { AggregateRenderer } from '../render/AggregateRenderer';
 import { makeNodeColorFn, fallbackColorFn } from '../render/palette';
 import { DAYLIGHT, DEEP_SPACE } from '../render/presets';
@@ -27,7 +29,7 @@ const ESTABLISHING_MS = 3200;
  */
 export class GraphController {
 	readonly store: GraphStore;
-	private layout = new MainThreadForceLayout();
+	private layout: LayoutEngine = new WorkerForceLayout();
 	private renderer: AggregateRenderer | null = null;
 	private director: CameraDirector | null = null;
 	private overlay: OverlayManager | null = null;
@@ -81,7 +83,7 @@ export class GraphController {
 			this.settings.colorGroups.length > 0 ? makeNodeColorFn(this.settings.colorGroups) : fallbackColorFn,
 		);
 		renderer.setData(this.store.data, this.store.positions);
-		this.layout.init(this.store.data, this.store.positions, toLayoutParams(this.settings.physics), warm ? 0.06 : 1);
+		this.initLayout(warm ? 0.06 : 1);
 
 		this.director = new CameraDirector(renderer.camera, renderer.renderer.domElement, {
 			onFlyToSelected: () => this.flyToSelected(),
@@ -210,8 +212,22 @@ export class GraphController {
 		this.renderer.setData(this.store.data, this.store.positions);
 		this.overlay?.setData(this.store.data, this.graphRadius);
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
-		this.layout.init(this.store.data, this.store.positions, toLayoutParams(this.settings.physics), 0.3);
+		this.initLayout(0.3);
 		this.wasSettled = false;
+	}
+
+	/** Worker 优先，创建失败（罕见环境）回退主线程实现 */
+	private initLayout(initialAlpha: number): void {
+		const params = toLayoutParams(this.settings.physics);
+		try {
+			this.layout.init(this.store.data, this.store.positions, params, initialAlpha);
+		} catch {
+			if (this.layout instanceof MainThreadForceLayout) throw new Error('layout init failed');
+			this.layout.dispose();
+			this.layout = new MainThreadForceLayout();
+			this.layout.init(this.store.data, this.store.positions, params, initialAlpha);
+			new Notice('星系视图：后台线程不可用，已回退主线程布局');
+		}
 	}
 
 	// ---------- 设置与视觉方向 ----------
@@ -586,18 +602,13 @@ export class GraphController {
 		await sleep(300);
 		const longTasks = observeLongTasks();
 		const t0 = performance.now();
-		let ticks = 0;
 		this.settings.positionCache = {}; // 冷布局必须无暖启动
-		this.store.rebuild(false);
-		const origStep = this.layout.step.bind(this.layout);
-		this.layout.step = () => {
-			const hot = origStep();
-			if (hot) ticks++;
-			return hot;
-		};
+		this.store.rebuild(false); // 触发 onDataChanged（alpha 0.3）……
+		this.initLayout(1); // ……随即以完整冷布局语义重新点火（M2 起的语义偏差在此修正）
+		this.wasSettled = false;
 		await this.waitSettle();
-		this.layout.step = origStep;
 		const settleMs = performance.now() - t0;
+		const ticks = this.layout.ticks;
 		const lt = longTasks.stop();
 
 		const result: BenchResult = {

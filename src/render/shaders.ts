@@ -11,13 +11,14 @@ varying float vGhost;
 varying float vDim;
 uniform float uPixelScale; // drawingBufferHeight / (2·tan(fov/2))
 uniform float uSizeMul; // 控制面板「节点大小」倍率
+uniform float uMaxPoint; // 设备像素钳制：穿行星团时防满屏大精灵打爆填充率（M3）
 
 void main() {
 	vColor = color;
 	vGhost = aGhost;
 	vDim = aDim;
 	vec4 mv = modelViewMatrix * vec4(position, 1.0);
-	gl_PointSize = aSize * uSizeMul * uPixelScale / max(-mv.z, 1.0);
+	gl_PointSize = min(aSize * uSizeMul * uPixelScale / max(-mv.z, 1.0), uMaxPoint);
 	gl_Position = projectionMatrix * mv;
 }
 `;

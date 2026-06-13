@@ -487,7 +487,8 @@
 	left: 8px !important;
 	right: 8px;
 	top: auto !important;
-	bottom: 8px;
+	/* 自适应：实测 navbar 重叠（--gx-bottom-inset）与 iPhone 横条安全区取大者 */
+	bottom: calc(10px + max(var(--gx-bottom-inset, 0px), env(safe-area-inset-bottom, 0px)));
 	width: auto;
 	max-height: 40vh;
 	overflow-y: auto;

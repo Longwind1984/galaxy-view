@@ -82,6 +82,7 @@ const context = await esbuild.context({
 	],
 	format: 'cjs',
 	target: 'es2021',
+	define: { __GALAXY_DEV__: prod ? 'false' : 'true' },
 	logLevel: 'info',
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,

@@ -20,6 +20,7 @@ export default tseslint.config(
 		languageOptions: {
 			globals: {
 				...globals.browser,
+				__GALAXY_DEV__: 'readonly',
 			},
 			parserOptions: {
 				projectService: {

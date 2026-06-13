@@ -79,6 +79,22 @@ export class OverlayManager {
 		this.hoverEl.show();
 	}
 
+	/**
+	 * 自适应底部留白（M4.1）：实测 .mobile-navbar 与画布的重叠像素。
+	 * 官方未暴露 navbar 高度变量，且平板/隐藏设置/安卓变体下可能不存在——
+	 * 运行时测量在所有形态下自适应：无 navbar 时为 0，不会多出空白。
+	 */
+	private refreshBottomInset(): void {
+		let inset = 0;
+		const navbar = activeDocument.querySelector('.mobile-navbar');
+		if (navbar) {
+			const nb = navbar.getBoundingClientRect();
+			const ce = this.root.getBoundingClientRect();
+			inset = Math.max(0, Math.round(ce.bottom - nb.top));
+		}
+		this.root.setCssProps({ '--gx-bottom-inset': `${inset}px` });
+	}
+
 	/** 选中：邻居标签 + 卡片；index<0 清空 */
 	setSelection(index: number, neighbors: Set<number>): void {
 		for (const e of this.neighborEls) e.el.remove();
@@ -97,7 +113,10 @@ export class OverlayManager {
 			el: this.root.createDiv({ cls: 'gx-label gx-label-neighbor', text: this.data.nodes[i]?.name ?? '' }),
 		}));
 		const node = this.data.nodes[index];
-		if (node) this.buildCard(node, index);
+		if (node) {
+			if (this.mobileCard) this.refreshBottomInset();
+			this.buildCard(node, index);
+		}
 	}
 
 	private buildCard(node: GraphNode, index: number): void {

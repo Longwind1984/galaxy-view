@@ -30,6 +30,8 @@ export default class GalaxyViewPlugin extends Plugin {
 			},
 		});
 
+		if (!__GALAXY_DEV__) return; // 以下为开发期基准命令，商店构建剔除
+
 		this.addCommand({
 			id: 'bench-suite',
 			// eslint-disable-next-line obsidianmd/ui/sentence-case -- M0 开发期命令，S1/S2/S3 是基准场景代号，发布前移除

@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-06-13 · M4 验收闭环 + M5 发布准备（待 Rick 确认对外发布）
+
+### 做了什么
+- **M4.1 卡片底部重叠修复（Rick iPhone 实测反馈）**：调研确认 Obsidian 移动端底部操作栏类名 `.mobile-navbar`（来自官方 app 包样式表）且**无官方高度变量**、平板/隐藏设置下可能不存在 → 采用**运行时实测**方案：卡片弹出时测量 navbar 与画布的实际重叠像素写入 `--gx-bottom-inset`，与 `safe-area-inset-bottom` 取大者。无 navbar 时实测为 0，天然不会多出空白（桌面移动模拟已验证此分支）。
+- **M4 桌面验收**：移动模拟档实测——6 draw calls / 1500 节点帽 / bloom 关 / 60fps；搜索选中「概念词典」→ 底部抽屉卡片贴底无遮挡、669 条出链高亮、聚焦变暗全部正常。Rick iPhone 实测：61fps 流畅。**G4 门通过，移动端随首发**。
+- **M5 准备**：`__GALAXY_DEV__` esbuild define 门控基准命令与面板 S1-S3（商店构建实测剔除、dev 构建保留）；MIT LICENSE；英文 README（商店门面）；GitHub Actions release 工作流（tag → lint+test+build → 附 main.js/manifest.json/styles.css）；官方审核自审通过（无 innerHTML / 无网络调用 / 无 JS 样式注入 / id 合规）。
+
+### 当前状态
+真实 vault = 商店版构建（无 dev 命令），dev vault = 开发版构建。**对外发布（建 GitHub repo + push + 打 tag）按协议待 Rick 确认**：repo 名 / 公开性 / 账号。确认后流程：gh repo create → push → tag 0.1.0 → CI 自动出 release → BRAT 可装 → 浸泡一周 → 商店 portal 提交（galaxy-view 查重）。
+
+### 未尽事项
+- iPhone 上的卡片避让效果待 Rick 下次同步后顺手确认（机制已在桌面验证，risk 低）。
+- 商店提交时需截图/GIF 素材（README 安装节 `<github-user>` 占位待替换）。
+
+### 文件级变更清单
+- 新增 `LICENSE`、`README.md`（英文）、`.github/workflows/release.yml`、`src/typings/galaxy-dev.d.ts`
+- 改 `esbuild.config.mjs`（define）、`src/main.ts`、`src/overlay/{ControlPanel,OverlayManager}.ts`（门控/自适应 inset）、`eslint.config.mts`、`styles.css`
+
+---
+
 ## 2026-06-13 · M4 移动端：三档质量体系 + 真实 vault 安装（iPhone 实测待 Rick）
 
 ### 做了什么

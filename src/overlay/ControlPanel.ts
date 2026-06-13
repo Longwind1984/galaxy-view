@@ -205,10 +205,12 @@ export class ControlPanel {
 		]) {
 			helpBody.createDiv({ text: line });
 		}
-		const devRow = advSec.createDiv({ cls: 'galaxy-panel-row' });
-		for (const sc of ['S1', 'S2', 'S3'] as const) {
-			const b = devRow.createEl('button', { text: sc });
-			b.addEventListener('click', () => cb.runScenario(sc));
+		if (__GALAXY_DEV__) {
+			const devRow = advSec.createDiv({ cls: 'galaxy-panel-row' });
+			for (const sc of ['S1', 'S2', 'S3'] as const) {
+				const b = devRow.createEl('button', { text: sc });
+				b.addEventListener('click', () => cb.runScenario(sc));
+			}
 		}
 	}
 

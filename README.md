@@ -21,7 +21,7 @@ Your notes become a galaxy: luminous nodes colored by your graph groups, thin de
 
 **From the community plugin store** (pending review): search for "Galaxy view".
 
-**Via BRAT**: add `<github-user>/galaxy-view` in the BRAT plugin.
+**Via BRAT**: add `Longwind1984/galaxy-view` in the BRAT plugin.
 
 **Manual**: download `main.js`, `manifest.json`, `styles.css` from the latest release into `<vault>/.obsidian/plugins/galaxy-view/`, then enable it in Settings → Community plugins.
 

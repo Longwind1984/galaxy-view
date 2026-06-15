@@ -1,0 +1,362 @@
+{
+  "_meta": {
+    "purpose": "供下游写作 pipeline AI 创作个人网站项目介绍页的事实素材包。已穷尽项目经过、决策迭代、产品与技术设计思路。叙事/文风由写作方决定，本文件不预设风格。",
+    "language_note": "中英混排：技术名词保留英文，叙述用中文。引用的关键数字均来自仓库 WORKLOG.md / git 历史 / 基准 JSON，已核实。",
+    "fidelity": "high — 所有 fps/draw call/体积/日期均为实测或 git 记录，非估算。"
+  },
+  "project": {
+    "name": "Galaxy View",
+    "id": "galaxy-view",
+    "tagline_zh": "把 Obsidian 笔记库变成一座可飞行探索的 3D 星系",
+    "tagline_en": "A cinematic 3D graph view for Obsidian — fly through your vault like NASA's Eyes on Asteroids",
+    "type": "Obsidian 社区插件（替代自带 2D Graph View）",
+    "license": "MIT",
+    "version": "0.1.0",
+    "repo": "https://github.com/Longwind1984/galaxy-view",
+    "status": "M0–M5 全部完成，v0.1.0 已发布；移动端随首发；社区商店上架为可选后续步骤",
+    "build_window": "2026-06-12 至 2026-06-15（4 天）",
+    "commit_count": 14,
+    "demo_inspiration_url": "https://eyes.nasa.gov/apps/asteroids/#/home"
+  },
+  "author_and_collaboration_model": {
+    "author": "Rick — 滴滴/99（DiDi/Brazil）产品经理，方向是安全与国际化产品；非软件开发者",
+    "the_vault": "个人 PKM 库「Rick's Second Brain」，实测 3,225 篇笔记 / 约 19,500 条去重有效双链（43k 原始 wikilink）",
+    "guiding_philosophy_zh": "对 PKM 场景而言，颜值和可玩性本身就是生产力的一部分",
+    "collaboration_model": "Rick 以产品经理身份指挥一个 AI 编码 agent（Claude）完成全部研发。分工：AI 负责技术调研、架构与视觉设计、编码实现、用计算机自动化（computer-use）驱动真机测试与跑基准；Rick 负责看运行版本给产品/视觉反馈、做方向裁决、用自己的 iPhone 实测。整个项目是「PM 看着跑起来的版本提反馈 → AI 把反馈翻译成技术实现」的多轮迭代。",
+    "why_this_model_is_notable": "一个不写代码的产品经理，靠对运行态成品的视觉判断和迭代反馈，驱动出一个 4000 行、性能超越所有前辈的开源插件。决策权在人、执行与工程判断在 AI。"
+  },
+  "problem_statement": {
+    "trigger": "Obsidian 自带 2D Graph View 在笔记上千篇时既不惊艳、也难以发现节点之间的关联 pattern。",
+    "scale_context": "当库到 3,000+ 节点、近 2 万条边时，2D 平面图退化成一团糊，视觉与导航价值都下降。",
+    "product_bet": "把图谱搬进 3D 并做到电影级观感，让「探索自己的知识库」从负担变成乐趣——颜值即生产力。"
+  },
+  "research_phase": {
+    "method": "动手写第一行代码前，先并行派出 5 个调研 agent（竞品 / NASA Eyes 拆解 / 渲染引擎选型 / Obsidian API / 真实 vault 侦察），再用 3 个并行设计 agent（架构 / 视觉 / 风险）产出带里程碑门控的实施计划。",
+    "competitor_findings": {
+      "summary": "市面 4 个已发布的 Obsidian 3D 图谱插件全部是 vasturiano/3d-force-graph 的薄封装、全部 MIT、全部停更 10 个月以上。",
+      "plugins": [
+        "AlexW00/obsidian-3d-graph（374 stars，2023-10 停更）",
+        "HananoshikaYomaru/3D Graph New",
+        "Apoo711/New 3D Graph",
+        "kctekn/Tags Routes"
+      ],
+      "smoking_gun_quote": "「3D Graph New」作者在 README 里直白写道：'the underlying 3D graph has performance issue that I don't know how to fix'，并加了一个最大节点数设置防止卡死。",
+      "common_death_wall": "全部死在同一堵墙：逐对象渲染（每个节点一个 Mesh、每条边一个 Line），真实库规模下约 22,000 次 draw call。",
+      "gap": "没有一个做了 bloom 辉光、电影感镜头、聚合渲染或星空环境。NASA 式「冷静高级感」是市场空白。",
+      "decision": "不 fork、全新构建；4 个竞品都是 MIT，作为参考代码免费借鉴而非继承其性能天花板。"
+    },
+    "nasa_eyes_teardown": {
+      "method": "没有靠传闻——直接下载并 grep 了 NASA Eyes on Asteroids 的生产 JS bundle 做逆向确认。",
+      "confirmed_stack": "three.js r167 + WebGLRenderer",
+      "confirmed_recipe": [
+        "EffectComposer + UnrealBloomPass，且 bloom 强度是运行时可调的（= 做成用户滑杆）",
+        "OutlinePass 默认禁用，仅选中时启用",
+        "自定义 ShaderMaterial 星空 + 银河 skybox",
+        "Tween 缓动的镜头 goTo 过渡",
+        "DOM 浮层标签（不是画布内文字）",
+        "细的、低饱和的轨道线（辉光靠 bloom 给）",
+        "远处=精灵点、近处=网格的 LOD",
+        "无雾、无暗角、无颗粒"
+      ],
+      "key_insight_zh": "高级感来自克制（premium feel = restraint），不是特效堆砌。这条成为整个视觉系统的纲领。"
+    },
+    "engine_selection": {
+      "chosen": "three.js 0.184（WebGL 基线）+ 3d-force-graph 1.80（起步用）+ d3-force-3d 3.0.6 + three-spritetext 1.10",
+      "webgl_not_webgpu": "WebGPU 不可依赖——Obsidian 用户的 Electron 版本普遍落后，WebGL 必须是基线。",
+      "rejected_cosmos_gl": "cosmos.gl（GPU 加速力导向，最快的引擎）被否：它只支持 2D，无法满足 3D 需求。",
+      "rejected_babylon": "Babylon.js 被否：无图谱生态、包体更重、对本场景零优势。"
+    },
+    "obsidian_api_findings": "app.metadataCache.resolvedLinks/unresolvedLinks 提供图数据；自带图谱的 colorGroups 可从 .obsidian/graph.json 读取并继承；--graph-* CSS 变量可读以适配主题；Platform.isMobile 检测移动端。"
+  },
+  "core_technical_decisions": [
+    {
+      "decision": "全新构建，不 fork 任何竞品",
+      "rationale": "竞品全部死于同一堵墙且依赖腐烂 2.5 年；fork 等于继承天花板。MIT 竞品作参考即可。",
+      "rejected_alternative": "fork 维护最活跃的 Apoo711 版本"
+    },
+    {
+      "decision": "聚合渲染（THE 核心突破）：全部节点 = 1 次 THREE.Points draw call（配自定义 radial-falloff 发光球 shader）；全部链接 = 1 次 LineSegments。整帧含 bloom < 20 次 draw call。",
+      "rationale": "前辈死于约 22,000 次 draw call 的逐对象管线。点精灵的发光衰减 shader 同时是 NASA「luminous orb」的观感来源——性能与美学在同一个方案里汇合（beauty and performance converge）。",
+      "rejected_alternative": "沿用 3d-force-graph 默认的逐节点 Mesh / 逐边 Line（= 复刻前辈死亡现场）",
+      "impact": "draw call 约 22,000 → 19；包体 1.3MB → 606KB"
+    },
+    {
+      "decision": "彻底弃用 3d-force-graph 运行时——自有 three.js 渲染管线 + 直驱 d3-force-3d",
+      "rationale": "原计划把 3d-force-graph 降级为「布局壳」保留；但聚合渲染既然自有场景，直驱 d3 比 fx/fy/fz 坐标回写的 hack 更简单，顺带消灭了全设计中唯一未验证的机制（风险表 R7）。",
+      "current_state": "src 中已无任何 3d-force-graph import；它只留在 package.json 作历史痕迹。运行时是纯 three.js + d3-force-3d。"
+    },
+    {
+      "decision": "从第一天就把 LayoutEngine 和 GraphRenderer 隔离在接口后面",
+      "rationale": "这是对前辈死因的针对性设防，不是过度抽象——「第二个用例已经由四具尸体付费了」。让布局引擎能从主线程换到 Web Worker、渲染能从逐对象换到聚合，而不动其它代码。",
+      "principle": "工程默认：第二个真实用例出现前不引入抽象层。这里第二用例（性能换实现）是已知的、被前辈证明的，故抽象成立。"
+    },
+    {
+      "decision": "DOM 浮层标签，不用画布内文字",
+      "rationale": "NASA 生产代码同款做法；CJK 中文清晰、可用 Obsidian CSS 变量换肤、与未来渲染重构解耦。"
+    },
+    {
+      "decision": "Web Worker 布局（M3）：d3-force-3d 完全离主线程，坐标用 transferable 双缓冲乒乓回传",
+      "rationale": "让「布局计算期间编辑笔记零卡顿」成为架构保证而非恰好够快。主线程每帧只剩一次约 38KB 的 memcpy。"
+    }
+  ],
+  "architecture": {
+    "size": "31 个 TypeScript 文件，约 4,040 行",
+    "composition_rule": "严格依赖方向：data / settings / theme / quality 层不知道 three.js；layout / render 层不知道 Obsidian；GraphController 是唯一的全知组装点。",
+    "module_map": {
+      "data/": "GraphStore（唯一读 metadataCache）、buildGraph（纯函数，可单测：去重/degree/孤儿过滤/节点帽）、seed（确定性种子布局）",
+      "layout/": "LayoutEngine 接口 + MainThreadForceLayout + WorkerForceLayout + forceWorker（worker 入口）",
+      "render/": "AggregateRenderer（核心）、shaders（发光球 GLSL）、starfield（含 Twinkler 眨眼）、palette、presets（深空/晨昼 token）、stylePresets（银河/星云/极简/烟火）、colorThemes（6 组品牌灵感配色）",
+      "interactions/": "CameraDirector（飞行/巡航/飞达即环绕/平移）",
+      "overlay/": "ControlPanel（折叠分区面板）、OverlayManager（DOM 标签+卡片）、Slider（Lightroom 式滑杆）",
+      "view/": "GalaxyView（ItemView 生命周期）、GraphController（组装点）、SearchModal",
+      "quality/": "tiers（high/low/mobile 三档预设）",
+      "settings.ts": "GalaxySettings + 持久化 + 脏数据防御性 merge"
+    },
+    "key_interfaces": [
+      "LayoutEngine（init/step/isSettled/reheat/updateParams/dispose + ticks）",
+      "AggregateRenderer（setData/applyTokens/applyTier/setFocus/playReveal/dispose）"
+    ]
+  },
+  "milestone_timeline": [
+    {
+      "id": "M0",
+      "name": "真实数据性能尖刺",
+      "date": "2026-06-12",
+      "what": "丢弃级质量的 spike：stock 3d-force-graph + 真实 vault 数据 + Stats + 4 个基准场景（S1 沉降后环绕 / S2 冷布局 longtask / S3 含未解析 / S4 泄漏金丝雀）。",
+      "gate": "G0，预先定好 45/30 fps 红黄绿判据。",
+      "outcome": "S1 = 16.2 fps，判定红色。按预案：聚合渲染从 M3 提前到 M1 立即实施——这不是危机，是计划内分支。用 3 小时复现了前辈的死亡之墙。同时实测出 vault 真实规模 3,225 节点 / 19.5k 边。",
+      "decision_philosophy": "每个里程碑用预先定好的 pass/fail 数字门控，所以坏结果是一条预设的分支，而非临场危机。"
+    },
+    {
+      "id": "M1",
+      "name": "聚合渲染器",
+      "date": "2026-06-12",
+      "what": "全部节点 1 次 draw call + 全部链接 1 次 draw call；弃用 3d-force-graph 运行时；布局改预算化（每帧 1 tick）。",
+      "outcome": "16 → 60 fps（vsync 顶满），22,000 → 19 draw calls。冷布局 61 秒卡死 → 5 秒星系成形动画（把等待变成开场剧场）。Gate G1 士气演示。",
+      "war_story": "S4 泄漏测试首读 +181MB 触发红灯；连续两轮对照证明是 GC 滞后而非真泄漏（第二轮起始堆比第一轮还低）；修正测量方法后终判 -1.0MB。教训写进代码：真泄漏判据 = 多轮起始堆持续抬升，单轮 delta 不可信。"
+    },
+    {
+      "id": "M1.5",
+      "name": "控制面板",
+      "date": "2026-06-12",
+      "feedback_trigger": "Rick 看 M1 后反馈两条：辉光太耀眼看不清内部结构；控制器太弱想要力学参数可玩。",
+      "what": "辉光（强度/扩散/阈值）+ 力学（斥力/链接距离/链接强度/向心力，拖动实时重热）+ 外观滑杆，全参数持久化。",
+      "key_fix": "辉光阈值默认 0.1 → 0.18 是解决「看不清结构」的关键——只有亮核与亮星过线发光，内部链接网不再被淹没。"
+    },
+    {
+      "id": "M2",
+      "name": "交互自由度 + 四件套 + 双视觉方向",
+      "date": "2026-06-12",
+      "feedback_trigger": "Rick 三条反馈：滑杆设计感弱（要默认值居中+限位可视化）；只能绕单节点拖拽、要像 FPS / Google Earth 那样前后左右移动。",
+      "what": [
+        "Lightroom 式滑杆：默认值锚定轨道几何中心、中心刻痕、两端限位值、双击回默认",
+        "3D 交互自由度：WASD/QE 飞行（速度随距离自适应+Shift 加速）、右键/⌘+左键拖平移、F 飞向选中、R 回总览、ESC 取消",
+        "四件套：graph.json 九组真配色导入、模糊搜索+飞行、DOM 浮层（枢纽/hover 标签+选中卡片）、聚焦模式（非邻居淡出+选中链接高亮）",
+        "双视觉方向：A 深空（恒暗）/ B 随主题（浅色=「晨昼制图室」墨水纸面方案）",
+        "暖启动坐标缓存 + 3.2s 拉出式开场镜头"
+      ]
+    },
+    {
+      "id": "M2.5",
+      "name": "优化轮（6 条反馈）",
+      "date": "2026-06-12",
+      "feedback_trigger": "Rick 6 条：链接透明度限位到 0、晨昼链接换色；要几组经典风格预设、能不能做成扁平星系；飞达节点后立即环绕且优先扫邻居密集侧；巡航参数化；面板信息架构精简；卡片被文字遮挡的 bug；⌘/Ctrl 平移在 Mac 上没反应。",
+      "what": [
+        "风格预设：银河（扁平星盘，新默认）/星云/极简/烟火",
+        "扁平星系靠 flatten——只作用于 Y 轴的额外向心力（自然引斥力做不出盘，这是必要的额外力）",
+        "飞达即环绕，方向优先扫过邻居质心所在的半球（5 条链接 4 条朝南→先划过南方）",
+        "面板 v3：常用置顶 + 折叠分区，首屏极简",
+        "卡片 z-index 置顶修复"
+      ],
+      "root_cause_find": "「⌘/Ctrl 拖没反应」的根因不是触控板——macOS 把 Ctrl+点击征用为系统右键模拟，事件到不了插件。改为 ⌘/Shift/右键三通道平移。"
+    },
+    {
+      "id": "M2.6",
+      "name": "配色主题 + 体验细节（6 条反馈）",
+      "date": "2026-06-13",
+      "feedback_trigger": "Rick 6 条：给几组具体配色 setting（大胆借鉴品牌）而非只靠洗牌；要 recenter 选项；远处星星偶尔闪烁；打开/recenter 时来段星系展开动画；是否显示孤儿节点的开关；按文档内容定节点质量/大小。",
+      "what": [
+        "6 组配色主题（按黑底呈现效果挑选）：哈勃深空 / 抖音霓虹 / 落日胶片 / 赛博都市 / 黑客帝国 / 极光",
+        "回中心按钮（清选中+回总览+到达即巡航，解决「不知道在绕哪个节点转」）",
+        "亮星眨眼——品味逻辑：只有最亮 3% 的「真星」会眨、同一时刻最多一颗、泊松随机间隔+1.6s 正弦包络（像真夜空的大气闪烁，不是圣诞彩灯），频率滑杆可关",
+        "创世动画：节点从中心按半径波次绽放，复用暖启动坐标无需预计算，开页自动播+手动按钮",
+        "孤儿节点开关（含边索引重排）",
+        "节点大小三模式：链接数 / 文档量（立方根压缩长尾）/ 一致"
+      ]
+    },
+    {
+      "id": "M3",
+      "name": "性能硬化：Worker 布局",
+      "date": "2026-06-13",
+      "what": "WorkerForceLayout——d3-force-3d 完全离主线程（esbuild inline-worker 插件把 worker 打包成 IIFE 文本 → Blob URL）；坐标 transferable 双缓冲乒乓零拷贝回传；创建失败回退主线程。",
+      "outcome": "冷布局主线程阻塞 61s → 0ms（0 次 longtask）。「布局期间编辑笔记零卡顿」从此是架构保证。",
+      "war_story": "实测真机时抓到镜头穿进星团内部掉到 8fps——满屏大发光精灵打爆 GPU 填充率；用 uMaxPoint=110dp 钳制点精灵尺寸修复。"
+    },
+    {
+      "id": "M4",
+      "name": "移动端三档质量体系",
+      "date": "2026-06-13",
+      "what": [
+        "三档预设：high（全量）/ low（降密）/ mobile",
+        "mobile 档：bloom 关（shader 热核保住约 80% 观感）、节点帽 1500（按度数取 top N，实测保留 94% 链接质量）、链接帽 12k、卡片改底部抽屉、仅 tap 无 hover、pixelRatio≤1.5",
+        "FPS 看门狗：auto 档沉降后连续 3 次采样 <30fps 单向降档（会话内不回升，避免振荡）",
+        "WebGL 上下文丢失恢复：遮罩 + 一键整体重建（Electron GPU 重置 / iOS 内存回收都走这条路）"
+      ],
+      "install": "插件装入真实 iCloud vault，经同步到 iPhone 实测。",
+      "real_device_result": "Rick iPhone 实测 61fps、6 draw calls、1500 节点帽全部按设计生效，整体流畅。"
+    },
+    {
+      "id": "M4.1",
+      "name": "移动端卡片避让（iPhone 实测反馈）",
+      "date": "2026-06-13",
+      "feedback_trigger": "Rick iPhone 实测发现：选中节点的底部卡片与系统底部操作栏重叠。要求自适应，避免「写死上移后没有操作栏的版本多出一块空白」。",
+      "research": "翻 Obsidian app 包样式表确认：底部操作栏类名 .mobile-navbar，官方未暴露高度变量，且平板/隐藏配置/部分安卓变体下可能根本不存在。",
+      "solution": "运行时实测方案：卡片弹出时测量 navbar 与画布的实际重叠像素写入 CSS 变量，与 safe-area-inset-bottom 取大者。无 navbar 时实测为 0，天然不多出空白。"
+    },
+    {
+      "id": "M5",
+      "name": "发布准备",
+      "date": "2026-06-13~15",
+      "what": [
+        "__GALAXY_DEV__ esbuild define 门控：商店构建剔除全部开发期基准命令（实测 prod 零残留），dev 构建保留",
+        "MIT LICENSE + 英文 README（商店门面）+ 中文 README",
+        "GitHub Actions release CI：打 tag 自动 lint+test+build 并附 main.js/manifest.json/styles.css",
+        "官方审核自审通过：无 innerHTML / 无网络请求 / 无遥测 / 无 JS 注入样式 / 插件 id 合规（不含 obsidian）"
+      ]
+    }
+  ],
+  "benchmark_evolution": {
+    "note": "同机同库（Rick 的 Mac + 真实 vault 3,225 节点 / 19,337 边）三代对比。",
+    "table": [
+      {
+        "scenario": "S1 沉降后环绕 fps（含 bloom）",
+        "M0_stock": "16.2",
+        "M1_aggregate": "60.0",
+        "M3_worker": "60.0（p95 17.7ms）"
+      },
+      {
+        "scenario": "S2 冷布局主线程阻塞",
+        "M0_stock": "61s 饱和（阻塞 60.7s，最长单块 860ms）",
+        "M1_aggregate": "5.2s（最长 64ms）",
+        "M3_worker": "5.8s（0 次阻塞，0ms）"
+      },
+      {
+        "scenario": "S3 含未解析（9,437 节点）fps",
+        "M0_stock": "13.8",
+        "M1_aggregate": "60.0",
+        "M3_worker": "60.0"
+      },
+      {
+        "scenario": "每帧 draw calls",
+        "M0_stock": "约 22,000",
+        "M1_aggregate": "19",
+        "M3_worker": "19"
+      },
+      {
+        "scenario": "S4 开关视图×10 堆增量",
+        "M0_stock": "+13.7MB",
+        "M1_aggregate": "-1.0MB",
+        "M3_worker": "-3.7MB"
+      },
+      {
+        "scenario": "包体",
+        "M0_stock": "1.3MB",
+        "M1_aggregate": "606KB",
+        "M3_worker": "665KB"
+      }
+    ]
+  },
+  "technical_war_stories": [
+    {
+      "title": "GC 滞后被误判为内存泄漏",
+      "story": "泄漏金丝雀首读 +181MB 触发红灯。连续两轮对照发现第二轮起始堆比第一轮还低——根源是 d3 每 tick 重建八叉树产生海量短命垃圾，忙循环期间 major GC 不跑。修正测量方法（结束后等 20s 空闲 GC）后终判 -1MB。沉淀出方法论：真泄漏判据是多轮起始堆持续抬升，单轮 delta 不可信。"
+    },
+    {
+      "title": "枢纽白爆",
+      "story": "约 2 万条边在密集枢纽核心用 additive blending 会叠加成一团白。换 NormalBlending + 0.16 低透明度 + bloom 阈值 0.1，让细线退到节点之后。"
+    },
+    {
+      "title": "穿行星团时填充率崩溃",
+      "story": "真机实测镜头飞进星团内部掉到 8fps——GPU 点尺寸上限让飞近的大精灵铺满屏幕、打爆填充率。用 shader 里 uMaxPoint=110dp 钳制点尺寸修复。"
+    },
+    {
+      "title": "macOS Ctrl+点击被系统征用",
+      "story": "Rick 反馈「Ctrl+拖平移没反应」，排查发现不是触控板——macOS 把 Ctrl+点击当系统右键模拟，事件根本到不了插件。改为 ⌘/Shift/右键三通道平移。"
+    },
+    {
+      "title": "自然力做不出星系盘",
+      "story": "Rick 想要扁平星系。自然引斥力只会形成球体；加了一个只作用于 Y 轴的额外向心力（flatten），才把球压成旋转星盘——并做成可连续调节的滑杆。"
+    },
+    {
+      "title": "移动端底部栏自适应",
+      "story": "卡片与 .mobile-navbar 重叠；因官方无高度变量、且该栏在某些形态下不存在，改用运行时实测重叠像素，无栏时为 0，零空白。"
+    },
+    {
+      "title": "esbuild 内联 Worker",
+      "story": "插件必须打包成单个 main.js，但需要 Web Worker。写了 esbuild 插件：'worker:' 前缀的导入被独立打包成 IIFE 文本字符串，运行时经 Blob URL 起 Worker。"
+    }
+  ],
+  "visual_design_system": {
+    "nasa_recipe_applied": "背景 #000003（近黑非纯黑，bloom 衰减需要）；3 个尺寸级 THREE.Points 星空（共 3 draw call）；节点=自定义发光球 shader（白热核心 smoothstep + 软边缘）；链接=细、低饱和、NormalBlending 0.16；后期链 RenderPass→UnrealBloomPass→OutputPass；ACES 色调映射。无雾/暗角/颗粒。",
+    "two_visual_directions": {
+      "deep_space": "始终深色电影感，无视 app 主题（像视频播放器的刻意反差）",
+      "theme_adaptive": "深色共用深空场景；浅色=专门设计的「晨昼制图室」——暖纸底 #F6F4EF、尘埃微粒替代星空、bloom 关闭（亮底辉光=雾霾）、墨水圆盘节点带深色 rim、铅笔线链接、NoToneMapping。不是把深色调亮，而是另一套设计。"
+    },
+    "style_presets": "银河（扁平盘，默认）/ 星云（自然球）/ 极简（零辉光看结构）/ 烟火（高辉光炫技）——每个是辉光+力学+外观的成套参数。",
+    "color_themes": "哈勃深空（天文摄影假彩色）/ 抖音霓虹 / 落日胶片（IG 渐变）/ 赛博都市（2077）/ 黑客帝国（纯绿阶）/ 极光（Spotify 绿+冰蓝）——按在黑色太空底上的呈现效果挑选。非商用项目，大胆借鉴品牌色。",
+    "camera_choreography": "开场从图内部 3.2s 拉出 + 辉光 1.8×→设置值回落；点击节点缓动飞行（15° 方位偏移、不正对、easeInOutCubic）；闲置巡航用 90s 仰角 + 60s 半径两个不可通约周期 → 轨迹永不复现（飞船感而非转盘）。",
+    "taste_details": "星星眨眼只挑最亮 3%、同时最多一颗、泊松间隔——刻意做成偶发的大气闪烁而非彩灯，是「品味即细节」的体现。"
+  },
+  "interaction_design": {
+    "3d_freedom": "轨道基底（左键环绕）+ FPS 飞行（WASD/QE，速度随离目标距离自适应、Shift 加速）+ Google Earth 式平移（右键/⌘/Shift+左键拖）+ 快捷键 F 飞向选中、R 回总览、ESC 取消。按键仅画布聚焦时生效，不抢 Obsidian 全局快捷键。",
+    "slider_design": "Lightroom 式：默认值锚定轨道几何中心（左右半轴分段线性映射）、中心刻痕标默认位、两端常驻 min/max 限位值、偏离填充条、双击回默认。",
+    "selection_flow": "点击节点→镜头飞过去→到达即绕节点环绕（方向优先扫邻居密集侧）→弹出卡片（标题/路径色点/标签/出入链/修改日期/异步摘要/打开笔记/聚焦）→聚焦模式淡出非邻居、高亮选中链接。",
+    "search": "Obsidian 原生 SuggestModal 模糊搜索，空查询给枢纽 top20 当「星座导览」，选中即飞行。"
+  },
+  "performance_engineering": {
+    "the_breakthrough": "聚合渲染——把前辈的约 22,000 次逐对象 draw call 压到 19 次（全节点 1×Points + 全链接 1×LineSegments + 星空 3×Points）。同一个方案同时解决了性能和 NASA 观感。",
+    "worker_layout": "d3-force-3d 完全离主线程，transferable 双缓冲乒乓零拷贝，主线程每帧仅 38KB memcpy，worker 批量 tick 每批≤12ms。",
+    "budget_paced_layout": "布局每帧只跑一个 tick——300 tick × 60fps ≈ 5 秒成形，把「卡死 61 秒」变成「开场动画」。",
+    "mobile_caps": "节点帽 1500（度数榜 top N，保 94% 链接质量）+ 链接帽 12k（按 min 端点度数），含索引重排，有单测覆盖。",
+    "leak_discipline": "onClose 完整销毁合同（WebGL context / worker.terminate / 事件 / forceContextLoss），每个里程碑必跑泄漏金丝雀。",
+    "fill_rate_clamp": "uMaxPoint 点精灵尺寸钳制，修复穿行星团时的填充率瓶颈。"
+  },
+  "methodology_meta_story": {
+    "headline": "这个项目本身是「AI agent 主导研发 + 产品经理视觉迭代」协作模式的一次完整实践。",
+    "upfront_diligence": "写第一行代码前先做 5 路并行技术调研 + 3 路并行多视角设计（架构/视觉/风险），产出带门控的实施计划——而非边写边想。",
+    "benchmark_gated_milestones": "每个里程碑都有预先定好 pass/fail 数字的决策门（G0 的 45/30 fps 红黄绿）。G0 判红时，3 小时的尖刺就触发了预设的『聚合渲染提前』分支——坏结果是计划内的转向，不是临场救火。",
+    "real_device_loop": "AI 用计算机自动化（computer-use）驱动真实 Obsidian：打开 dev vault、跑基准命令、读结果 JSON、截图验证；Rick 用自己的 iPhone 做最终真机验收。",
+    "human_ai_division": "决策权与审美裁决在 Rick（看运行版本提反馈、定方向）；技术调研、架构判断、实现、测试在 AI。多轮『PM 看着成品提反馈 → AI 翻译成实现』的迭代是项目推进的主引擎（M1.5/M2/M2.5/M2.6/M4.1 都是反馈驱动的轮次）。",
+    "documentation_discipline": "全程维护 WORKLOG.md（倒金字塔结构的逐会话记录）+ docs/design/（架构/视觉/风险设计文档）+ 中英 README，决策与被否方案都留痕。"
+  },
+  "final_tech_stack": {
+    "runtime": "three.js 0.184（WebGLRenderer）+ d3-force-3d 3.0.6（在 Web Worker 里）",
+    "removed_from_runtime": "3d-force-graph（M0 起步用过，M1 后彻底移除运行时依赖，src 中已无 import）",
+    "labels": "DOM 浮层（three-spritetext 仅留作备胎）",
+    "build": "esbuild 0.25（单 665KB main.js，含 inline-worker 插件 + __GALAXY_DEV__ define）",
+    "lang_test": "TypeScript 5.8 + vitest（8 个单测，覆盖 buildGraph 纯函数：去重/degree/孤儿过滤/节点帽/fileSize）",
+    "lint": "eslint + eslint-plugin-obsidianmd（商店合规规则，自第一条 commit 起）",
+    "distribution": "GitHub Actions tag→release → BRAT beta → 社区商店 portal"
+  },
+  "quantitative_facts_for_writer": [
+    "4 天（2026-06-12 至 06-15）、14 次 commit",
+    "31 个 TypeScript 文件，约 4,040 行代码",
+    "真实 vault：3,225 篇笔记 / 约 19,500 条有效双链",
+    "帧率：16.2 → 60 fps（vsync 顶满）",
+    "draw calls：约 22,000 → 19",
+    "冷布局主线程阻塞：61 秒 → 0 毫秒",
+    "包体：1.3MB → 665KB",
+    "移动端：节点帽 1,500（保 94% 链接质量），bloom 关后仍保约 80% 观感，iPhone 实测 61fps",
+    "市面 4 个同类插件全部停更 10+ 个月、全部死于逐对象渲染",
+    "6 组配色主题、4 种风格预设、2 个视觉方向、8 个单测"
+  ],
+  "distinctive_angles_raw": [
+    "性能与美学的汇合：让前辈死掉的那堵墙（逐对象渲染），用一个既是性能解法又是 NASA 发光观感的聚合渲染方案一次性打掉。",
+    "对竞品死因的逆向工程：动手前先确诊了 4 个前辈共同的死法（含作者自认『不知道怎么修』的原话），并把架构直接设计成对这堵墙的设防。",
+    "对 NASA Eyes 的真实拆解：不是模仿观感，而是 grep 了它的生产 bundle 确认了 three.js 版本与每一个特效配方。",
+    "决策门控的工程纪律：G0 判红是 3 小时尖刺触发的预设分支，不是临场危机——把风险前置成可量化的 go/no-go。",
+    "PM × AI 的协作样本：一个不写代码的产品经理靠对运行态的视觉反馈，多轮驱动出一个性能超越所有前辈的开源插件。",
+    "可量化的成果：16→60fps、22k→19 draw calls、61s→0ms 阻塞，全部同机同库实测、三代留痕。",
+    "品味落到细节：星星眨眼的泊松节律、扁平星系需要的额外 Y 轴力、晨昼制图室的墨水纸面方案——颜值即生产力的具体兑现。"
+  ]
+}

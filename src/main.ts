@@ -34,15 +34,13 @@ export default class GalaxyViewPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'bench-suite',
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- M0 开发期命令，S1/S2/S3 是基准场景代号，发布前移除
-			name: 'M0 基准：依次跑 S1 / S2 / S3',
+			name: '基准：环绕、冷布局、含未解析',
 			callback: () => void this.runBenchSuite(),
 		});
 
 		this.addCommand({
 			id: 'bench-leak',
-			// eslint-disable-next-line obsidianmd/ui/sentence-case -- M0 开发期命令，发布前移除
-			name: 'M0 基准：S4 泄漏金丝雀（开关视图×10）',
+			name: '基准：泄漏检测（反复开关视图）',
 			callback: () => void this.runLeakCanary(),
 		});
 	}
@@ -97,10 +95,9 @@ export default class GalaxyViewPlugin extends Plugin {
 			await sleep(400);
 			new Notice(`S4：${i + 1}/${cycles}`);
 		}
-		// 布局 tick 产生大量短命垃圾（d3 每 tick 重建八叉树），忙循环期间 major GC
-		// 不一定跑——等空闲 GC 收尾后再读数，否则把 GC 滞后误判成泄漏（2026-06-12 实测）
-		// eslint-disable-next-line obsidianmd/ui/sentence-case -- GC 是专有缩写，开发期提示
-		new Notice('S4：等待 20s 让 GC 收尾…');
+		// 布局 tick 产生大量短命垃圾（d3 每 tick 重建八叉树），忙循环期间整堆回收
+		// 不一定跑——等空闲回收收尾后再读数，否则把回收滞后误判成泄漏（2026-06-12 实测）
+		new Notice('基准：等待内存回收…');
 		await sleep(20_000);
 		const after = heapUsed();
 		const result = {

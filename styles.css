@@ -483,16 +483,18 @@
 
 /* ---------- M4 移动端 ---------- */
 
+/* .gx-mobile .gx-card 比 .gx-card 更具体 → 靠选择器特异性覆盖 left/top/transform
+   （JS 已在移动端清掉内联 transform，见 OverlayManager.setSelection） */
 .gx-mobile .gx-card {
-	left: 8px !important;
+	left: 8px;
 	right: 8px;
-	top: auto !important;
+	top: auto;
 	/* 自适应：实测 navbar 重叠（--gx-bottom-inset）与 iPhone 横条安全区取大者 */
 	bottom: calc(10px + max(var(--gx-bottom-inset, 0px), env(safe-area-inset-bottom, 0px)));
 	width: auto;
 	max-height: 40vh;
 	overflow-y: auto;
-	transform: none !important;
+	transform: none;
 }
 
 .gx-mask-btn {

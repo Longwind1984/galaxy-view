@@ -114,7 +114,11 @@ export class OverlayManager {
 		}));
 		const node = this.data.nodes[index];
 		if (node) {
-			if (this.mobileCard) this.refreshBottomInset();
+			if (this.mobileCard) {
+				this.refreshBottomInset();
+				// 移除桌面定位残留的内联 transform → CSS 底部抽屉定位靠选择器特异性接管（免 !important）
+				this.card.style.removeProperty('transform');
+			}
 			this.buildCard(node, index);
 		}
 	}

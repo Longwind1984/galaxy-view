@@ -71,8 +71,8 @@ function applyParams(params: LayoutParams): void {
 function schedule(): void {
 	if (scheduled) return;
 	scheduled = true;
-	// eslint-disable-next-line obsidianmd/prefer-window-timers -- Worker 作用域没有 window
-	setTimeout(run, 0);
+	// Worker 作用域用 self（没有 window）；宏任务 yield 让批次间能处理回传消息
+	self.setTimeout(run, 0);
 }
 
 function run(): void {

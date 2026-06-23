@@ -1,6 +1,7 @@
 import type { App } from 'obsidian';
 import { TFile, getAllTags } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
+import { t } from '../locales';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
 
 
@@ -132,7 +133,7 @@ export class OverlayManager {
 		const dot = meta.createSpan({ cls: 'gx-card-dot' });
 		dot.style.background = this.renderer.nodeColorHex(index);
 		meta.createSpan({
-			text: node.unresolved ? '未解析链接（笔记尚不存在）' : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : '根目录',
+			text: node.unresolved ? t('unresolved_link_exists') : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : t('root_directory'),
 		});
 
 		const file = node.unresolved ? null : this.app.vault.getAbstractFileByPath(node.id);
@@ -149,8 +150,8 @@ export class OverlayManager {
 
 		const stats = this.card.createDiv({ cls: 'gx-card-stats' });
 		stats.setText(
-			`↩ ${node.inDegree} 反链 · → ${node.outDegree} 出链` +
-				(tfile ? ` · 改于 ${new Date(tfile.stat.mtime).toLocaleDateString('zh-CN')}` : ''),
+			t('link_metrics', { inDegree: node.inDegree, outDegree: node.outDegree }) +
+				(tfile ? t('modified_date', { date: new Date(tfile.stat.mtime).toLocaleDateString() }) : ''),
 		);
 
 		if (tfile) {
@@ -158,16 +159,16 @@ export class OverlayManager {
 			const token = ++this.snippetToken;
 			void this.app.vault.cachedRead(tfile).then((text) => {
 				if (token !== this.snippetToken) return; // 已切换选中，丢弃过期结果
-				snippetEl.setText(stripMarkdown(text).slice(0, 120) || '（空笔记）');
+				snippetEl.setText(stripMarkdown(text).slice(0, 120) || t('empty_note'));
 			});
 		}
 
 		const actions = this.card.createDiv({ cls: 'gx-card-actions' });
 		if (!node.unresolved) {
-			const openBtn = actions.createEl('button', { text: '打开笔记' });
+			const openBtn = actions.createEl('button', { text: t('open_note') });
 			openBtn.addEventListener('click', () => this.cb.openNote(node.id));
 		}
-		const focusBtn = actions.createEl('button', { text: '聚焦' });
+		const focusBtn = actions.createEl('button', { text: t('focus') });
 		focusBtn.addEventListener('click', () => this.cb.focusNode(index));
 	}
 

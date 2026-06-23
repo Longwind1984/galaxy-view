@@ -4,6 +4,7 @@ import type { GalaxySettings } from './settings';
 import { DEFAULT_SETTINGS, mergeSettings } from './settings';
 import { GalaxyView } from './view/GalaxyView';
 import { heapUsed, sleep, writeBenchResult } from './bench/bench';
+import { t } from './locales';
 
 export default class GalaxyViewPlugin extends Plugin {
 	settings: GalaxySettings = DEFAULT_SETTINGS;
@@ -12,19 +13,19 @@ export default class GalaxyViewPlugin extends Plugin {
 		this.settings = mergeSettings(await this.loadData());
 		this.registerView(VIEW_TYPE_GALAXY, (leaf) => new GalaxyView(leaf, this));
 
-		this.addRibbonIcon('orbit', '打开星系视图', () => {
+		this.addRibbonIcon('orbit', t('open_view'), () => {
 			void this.activateView();
 		});
 
 		this.addCommand({
 			id: 'open',
-			name: '打开星系视图',
+			name: t('open_view'),
 			callback: () => void this.activateView(),
 		});
 
 		this.addCommand({
 			id: 'search',
-			name: '搜索星系节点并飞行',
+			name: t('search_nodes_fly'),
 			callback: () => {
 				void this.activateView().then((view) => view?.controller?.openSearch());
 			},
@@ -34,13 +35,13 @@ export default class GalaxyViewPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'bench-suite',
-			name: '基准：环绕、冷布局、含未解析',
+			name: t('bench_suite'),
 			callback: () => void this.runBenchSuite(),
 		});
 
 		this.addCommand({
 			id: 'bench-leak',
-			name: '基准：泄漏检测（反复开关视图）',
+			name: t('bench_leak'),
 			callback: () => void this.runLeakCanary(),
 		});
 	}
@@ -64,20 +65,20 @@ export default class GalaxyViewPlugin extends Plugin {
 	private async runBenchSuite(): Promise<void> {
 		const view = await this.activateView();
 		if (!view) {
-			new Notice('星系视图打开失败');
+			new Notice(t('open_failed'));
 			return;
 		}
 		// 等控制器完成异步启动
 		for (let i = 0; i < 100 && !view.controller; i++) await sleep(100);
 		const c = view.controller;
 		if (!c) {
-			new Notice('星系视图初始化超时');
+			new Notice(t('init_timeout'));
 			return;
 		}
 		await c.runScenario('S1');
 		await c.runScenario('S2');
 		await c.runScenario('S3');
-		new Notice('基准完成，结果在 _galaxy_bench/ 目录');
+		new Notice(t('bench_completed'));
 	}
 
 	/** S4：开关视图×10，看堆增量与 WebGL 上下文告警（后者看控制台） */
@@ -97,7 +98,7 @@ export default class GalaxyViewPlugin extends Plugin {
 		}
 		// 布局 tick 产生大量短命垃圾（d3 每 tick 重建八叉树），忙循环期间整堆回收
 		// 不一定跑——等空闲回收收尾后再读数，否则把回收滞后误判成泄漏（2026-06-12 实测）
-		new Notice('基准：等待内存回收…');
+		new Notice(t('bench_waiting_reclamation'));
 		await sleep(20_000);
 		const after = heapUsed();
 		const result = {
@@ -111,9 +112,9 @@ export default class GalaxyViewPlugin extends Plugin {
 			heapBeforeMB: before / 1048576,
 			heapAfterMB: after / 1048576,
 			heapDeltaMB: (after - before) / 1048576,
-			note: 'WebGL context 告警需看开发者控制台；真泄漏判据=连续两轮 before 持续抬升',
+			note: t('webgl_warning_note'),
 		};
 		await writeBenchResult(this.app, result);
-		new Notice(`S4 完成：堆增量 ${result.heapDeltaMB.toFixed(1)} MB（通过线 <20MB）`);
+		new Notice(t('s4_completed', { delta: result.heapDeltaMB.toFixed(1) }));
 	}
 }

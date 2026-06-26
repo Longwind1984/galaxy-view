@@ -116,9 +116,9 @@ export class OverlayManager {
 		if (node) {
 			if (this.mobileCard) {
 				this.refreshBottomInset();
-				// 移除桌面定位残留的内联 transform → CSS 底部抽屉定位靠选择器特异性接管（免 !important）
-				this.card.style.removeProperty('transform');
 			}
+			// 移除定位残留的内联 transform → 靠 CSS 定位接管
+			this.card.style.removeProperty('transform');
 			this.buildCard(node, index);
 		}
 	}
@@ -195,15 +195,8 @@ export class OverlayManager {
 			const p = this.renderer.projectNode(this.hoverIndex, w, h);
 			if (!p.behind) this.hoverEl.style.transform = `translate3d(${p.x.toFixed(1)}px, ${(p.y - 18).toFixed(1)}px, 0)`;
 		}
-		if (this.cardIndex >= 0 && !this.mobileCard) {
-			const p = this.renderer.projectNode(this.cardIndex, w, h);
-			if (!p.behind) {
-				const flip = p.x + 296 > w;
-				const x = flip ? p.x - 296 : p.x + 16;
-				const y = Math.min(Math.max(p.y - 40, 12), Math.max(h - this.card.clientHeight - 12, 12));
-				this.card.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-			}
-		}
+		// On desktop, the card is positioned statically in the top-right corner via CSS.
+		// Therefore, we don't calculate node coordinates or apply dynamic transforms here.
 	}
 
 	dispose(): void {

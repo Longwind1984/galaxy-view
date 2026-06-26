@@ -273,11 +273,11 @@
 
 .gx-card {
 	position: absolute;
-	top: 0;
-	left: 0;
+	top: 10px;
+	right: 10px;
+	left: auto;
 	z-index: 6; /* 卡片永远盖住浮层标签（G2 bug 修复） */
 	width: 280px;
-	transform: translate3d(-1000px, -1000px, 0);
 	pointer-events: auto;
 	border-radius: 10px;
 	padding: 12px 14px;

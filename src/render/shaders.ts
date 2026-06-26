@@ -40,7 +40,9 @@ void main() {
 	float rim = smoothstep(0.40, 0.46, d) * smoothstep(0.50, 0.46, d);
 	col = mix(col, col * 0.72, rim * uLightMode);
 
-	float alpha = smoothstep(0.5, 0.42, d) * mix(1.0, 0.45, vGhost) * vDim;
+	// Dynamically soften/blur edges of dimmed background nodes (vDim < 1.0)
+	float edgeStart = mix(0.05, 0.42, vDim);
+	float alpha = smoothstep(0.5, edgeStart, d) * mix(1.0, 0.45, vGhost) * vDim;
 	if (alpha < 0.01) discard;
 	gl_FragColor = vec4(col, alpha);
 }

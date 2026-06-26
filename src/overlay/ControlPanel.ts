@@ -5,6 +5,7 @@ import { STYLE_PRESETS } from '../render/stylePresets';
 import type { ColorTheme } from '../render/colorThemes';
 import { COLOR_THEMES } from '../render/colorThemes';
 import { Slider } from './Slider';
+import { t } from '../locales';
 
 export interface ControlPanelCallbacks {
 	onBloom: () => void;
@@ -66,23 +67,23 @@ export class ControlPanel {
 
 		// —— 常用区 ——
 		const row1 = body.createDiv({ cls: 'galaxy-panel-row' });
-		const searchBtn = row1.createEl('button', { text: '搜索' });
+		const searchBtn = row1.createEl('button', { text: t('panel_search') });
 		searchBtn.addEventListener('click', cb.onSearch);
-		const recenterBtn = row1.createEl('button', { text: '回中心' });
+		const recenterBtn = row1.createEl('button', { text: t('panel_recenter') });
 		recenterBtn.addEventListener('click', cb.onRecenter);
 		const row1b = body.createDiv({ cls: 'galaxy-panel-row' });
-		this.cruiseBtn = row1b.createEl('button', { text: s.cruise ? '巡航：开' : '巡航：关' });
+		this.cruiseBtn = row1b.createEl('button', { text: s.cruise ? t('panel_cruise_on') : t('panel_cruise_off') });
 		this.cruiseBtn.addEventListener('click', () => {
 			s.cruise = !s.cruise;
-			this.cruiseBtn?.setText(s.cruise ? '巡航：开' : '巡航：关');
+			this.cruiseBtn?.setText(s.cruise ? t('panel_cruise_on') : t('panel_cruise_off'));
 			cb.onCruise(s.cruise);
 		});
-		const revealBtn = row1b.createEl('button', { text: '创世动画' });
+		const revealBtn = row1b.createEl('button', { text: t('panel_reveal') });
 		revealBtn.addEventListener('click', cb.onReveal);
 
 		const chipRow = body.createDiv({ cls: 'gx-chips' });
 		for (const preset of STYLE_PRESETS) {
-			const chip = chipRow.createEl('button', { cls: 'gx-chip', text: preset.name });
+			const chip = chipRow.createEl('button', { cls: 'gx-chip', text: t(`preset_${preset.id}` as any) });
 			chip.addEventListener('click', () => {
 				cb.onStylePreset(preset);
 				this.refreshAll();
@@ -100,27 +101,27 @@ export class ControlPanel {
 			return det.createDiv({ cls: 'gx-section-body' });
 		};
 
-		const bloomSec = section('辉光');
+		const bloomSec = section(t('panel_sec_bloom'));
 		this.sliders.push(
-			new Slider(bloomSec, { label: '强度', min: 0, max: 2.5, step: 0.05, defaultValue: d.bloom.strength, get: () => s.bloom.strength, set: (v) => (s.bloom.strength = v), onInput: cb.onBloom }),
-			new Slider(bloomSec, { label: '扩散', min: 0, max: 1.2, step: 0.05, defaultValue: d.bloom.radius, get: () => s.bloom.radius, set: (v) => (s.bloom.radius = v), onInput: cb.onBloom }),
-			new Slider(bloomSec, { label: '阈值', min: 0, max: 1, step: 0.05, defaultValue: d.bloom.threshold, get: () => s.bloom.threshold, set: (v) => (s.bloom.threshold = v), onInput: cb.onBloom }),
+			new Slider(bloomSec, { label: t('panel_bloom_strength'), min: 0, max: 2.5, step: 0.05, defaultValue: d.bloom.strength, get: () => s.bloom.strength, set: (v) => (s.bloom.strength = v), onInput: cb.onBloom }),
+			new Slider(bloomSec, { label: t('panel_bloom_radius'), min: 0, max: 1.2, step: 0.05, defaultValue: d.bloom.radius, get: () => s.bloom.radius, set: (v) => (s.bloom.radius = v), onInput: cb.onBloom }),
+			new Slider(bloomSec, { label: t('panel_bloom_threshold'), min: 0, max: 1, step: 0.05, defaultValue: d.bloom.threshold, get: () => s.bloom.threshold, set: (v) => (s.bloom.threshold = v), onInput: cb.onBloom }),
 		);
 
-		const phySec = section('力学');
+		const phySec = section(t('panel_sec_physics'));
 		this.sliders.push(
-			new Slider(phySec, { label: '斥力', min: 20, max: 400, step: 5, defaultValue: d.physics.repel, get: () => s.physics.repel, set: (v) => (s.physics.repel = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
-			new Slider(phySec, { label: '链接距离', min: 20, max: 200, step: 5, defaultValue: d.physics.linkDistance, get: () => s.physics.linkDistance, set: (v) => (s.physics.linkDistance = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
-			new Slider(phySec, { label: '链接强度', min: 0.1, max: 2, step: 0.1, defaultValue: d.physics.linkStrength, get: () => s.physics.linkStrength, set: (v) => (s.physics.linkStrength = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onPhysics }),
-			new Slider(phySec, { label: '向心力', min: 0, max: 0.2, step: 0.005, defaultValue: d.physics.centerPull, get: () => s.physics.centerPull, set: (v) => (s.physics.centerPull = v), fmt: (v) => v.toFixed(3), onInput: cb.onPhysics }),
-			new Slider(phySec, { label: '扁平度', min: 0, max: 0.8, step: 0.02, defaultValue: d.physics.flatten, get: () => s.physics.flatten, set: (v) => (s.physics.flatten = v), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: t('panel_physics_repel'), min: 20, max: 400, step: 5, defaultValue: d.physics.repel, get: () => s.physics.repel, set: (v) => (s.physics.repel = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: t('panel_physics_distance'), min: 20, max: 200, step: 5, defaultValue: d.physics.linkDistance, get: () => s.physics.linkDistance, set: (v) => (s.physics.linkDistance = v), fmt: (v) => String(Math.round(v)), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: t('panel_physics_strength'), min: 0.1, max: 2, step: 0.1, defaultValue: d.physics.linkStrength, get: () => s.physics.linkStrength, set: (v) => (s.physics.linkStrength = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onPhysics }),
+			new Slider(phySec, { label: t('panel_physics_pull'), min: 0, max: 0.2, step: 0.005, defaultValue: d.physics.centerPull, get: () => s.physics.centerPull, set: (v) => (s.physics.centerPull = v), fmt: (v) => v.toFixed(3), onInput: cb.onPhysics }),
+			new Slider(phySec, { label: t('panel_physics_flatten'), min: 0, max: 0.8, step: 0.02, defaultValue: d.physics.flatten, get: () => s.physics.flatten, set: (v) => (s.physics.flatten = v), onInput: cb.onPhysics }),
 		);
 
-		const lookSec = section('外观与配色');
+		const lookSec = section(t('panel_sec_appearance'));
 		this.sliders.push(
-			new Slider(lookSec, { label: '节点大小', min: 0.3, max: 2.5, step: 0.05, defaultValue: d.look.nodeSize, get: () => s.look.nodeSize, set: (v) => (s.look.nodeSize = v), fmt: (v) => `${v.toFixed(2)}×`, onInput: cb.onLook }),
-			new Slider(lookSec, { label: '链接透明度', min: 0, max: 0.6, step: 0.01, defaultValue: d.look.linkOpacity, get: () => s.look.linkOpacity, set: (v) => (s.look.linkOpacity = v), onInput: cb.onLook }),
-			new Slider(lookSec, { label: '星星眨眼', min: 0, max: 2, step: 0.1, defaultValue: d.look.twinkle, get: () => s.look.twinkle, set: (v) => (s.look.twinkle = v), fmt: (v) => (v < 0.05 ? '关' : `${v.toFixed(1)}`), onInput: cb.onLook }),
+			new Slider(lookSec, { label: t('panel_appearance_size'), min: 0.3, max: 2.5, step: 0.05, defaultValue: d.look.nodeSize, get: () => s.look.nodeSize, set: (v) => (s.look.nodeSize = v), fmt: (v) => `${v.toFixed(2)}×`, onInput: cb.onLook }),
+			new Slider(lookSec, { label: t('panel_appearance_opacity'), min: 0, max: 0.6, step: 0.01, defaultValue: d.look.linkOpacity, get: () => s.look.linkOpacity, set: (v) => (s.look.linkOpacity = v), onInput: cb.onLook }),
+			new Slider(lookSec, { label: t('panel_appearance_twinkle'), min: 0, max: 2, step: 0.1, defaultValue: d.look.twinkle, get: () => s.look.twinkle, set: (v) => (s.look.twinkle = v), fmt: (v) => (v < 0.05 ? t('panel_appearance_off') : `${v.toFixed(1)}`), onInput: cb.onLook }),
 		);
 		const sizeRow = lookSec.createDiv({ cls: 'galaxy-panel-row' });
 		this.sizeByBtn = sizeRow.createEl('button', { text: this.sizeByLabel() });
@@ -132,23 +133,23 @@ export class ControlPanel {
 		});
 
 		const themeSel = lookSec.createEl('select', { cls: 'gx-theme-select' });
-		const customOpt = themeSel.createEl('option', { text: '配色主题…', value: '' });
+		const customOpt = themeSel.createEl('option', { text: t('theme_custom'), value: '' });
 		customOpt.disabled = true;
-		for (const t of COLOR_THEMES) themeSel.createEl('option', { text: t.name, value: t.id });
-		themeSel.value = COLOR_THEMES.some((t) => t.id === s.colorTheme) ? s.colorTheme : '';
+		for (const theme of COLOR_THEMES) themeSel.createEl('option', { text: t(`theme_${theme.id}` as any), value: theme.id });
+		themeSel.value = COLOR_THEMES.some((theme) => theme.id === s.colorTheme) ? s.colorTheme : '';
 		if (!themeSel.value) customOpt.selected = true;
 		themeSel.addEventListener('change', () => {
-			const t = COLOR_THEMES.find((x) => x.id === themeSel.value);
-			if (t) cb.onColorTheme(t);
+			const theme = COLOR_THEMES.find((x) => x.id === themeSel.value);
+			if (theme) cb.onColorTheme(theme);
 		});
 
 		const colorRow = lookSec.createDiv({ cls: 'galaxy-panel-row' });
-		const importBtn = colorRow.createEl('button', { text: '导入二维配色' });
+		const importBtn = colorRow.createEl('button', { text: t('panel_import_colors') });
 		importBtn.addEventListener('click', () => {
 			cb.onImportColors();
 			customOpt.selected = true;
 		});
-		const shuffleBtn = colorRow.createEl('button', { text: '配色洗牌' });
+		const shuffleBtn = colorRow.createEl('button', { text: t('panel_shuffle_colors') });
 		shuffleBtn.addEventListener('click', () => {
 			cb.onShuffleColors();
 			customOpt.selected = true;
@@ -161,23 +162,23 @@ export class ControlPanel {
 			cb.onPreset();
 		});
 
-		const cruiseSec = section('巡航');
+		const cruiseSec = section(t('panel_sec_cruise'));
 		this.sliders.push(
-			new Slider(cruiseSec, { label: '速度', min: 0.2, max: 3, step: 0.1, defaultValue: d.cruiseSpeed, get: () => s.cruiseSpeed, set: (v) => (s.cruiseSpeed = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onCruiseSpeed }),
+			new Slider(cruiseSec, { label: t('panel_cruise_speed'), min: 0.2, max: 3, step: 0.1, defaultValue: d.cruiseSpeed, get: () => s.cruiseSpeed, set: (v) => (s.cruiseSpeed = v), fmt: (v) => `${v.toFixed(1)}×`, onInput: cb.onCruiseSpeed }),
 		);
 
-		const advSec = section('高级');
+		const advSec = section(t('panel_sec_advanced'));
 		const advRow = advSec.createDiv({ cls: 'galaxy-panel-row' });
-		this.unresolvedBtn = advRow.createEl('button', { text: s.showUnresolved ? '未解析：显示' : '未解析：隐藏' });
+		this.unresolvedBtn = advRow.createEl('button', { text: s.showUnresolved ? t('panel_unresolved_show') : t('panel_unresolved_hide') });
 		this.unresolvedBtn.addEventListener('click', () => {
 			s.showUnresolved = !s.showUnresolved;
-			this.unresolvedBtn?.setText(s.showUnresolved ? '未解析：显示' : '未解析：隐藏');
+			this.unresolvedBtn?.setText(s.showUnresolved ? t('panel_unresolved_show') : t('panel_unresolved_hide'));
 			cb.onShowUnresolved(s.showUnresolved);
 		});
-		this.orphanBtn = advRow.createEl('button', { text: s.showOrphans ? '孤儿：显示' : '孤儿：隐藏' });
+		this.orphanBtn = advRow.createEl('button', { text: s.showOrphans ? t('panel_orphans_show') : t('panel_orphans_hide') });
 		this.orphanBtn.addEventListener('click', () => {
 			s.showOrphans = !s.showOrphans;
-			this.orphanBtn?.setText(s.showOrphans ? '孤儿：显示' : '孤儿：隐藏');
+			this.orphanBtn?.setText(s.showOrphans ? t('panel_orphans_show') : t('panel_orphans_hide'));
 			cb.onShowOrphans(s.showOrphans);
 		});
 		const advRow2 = advSec.createDiv({ cls: 'galaxy-panel-row' });
@@ -188,20 +189,20 @@ export class ControlPanel {
 			this.qualityBtn?.setText(this.qualityLabel());
 			cb.onQuality();
 		});
-		const resetBtn = advRow2.createEl('button', { text: '重置默认' });
+		const resetBtn = advRow2.createEl('button', { text: t('panel_reset_default') });
 		resetBtn.addEventListener('click', () => {
 			cb.onReset();
 			this.refreshAll();
 		});
 		const helpBody = advSec.createDiv({ cls: 'galaxy-panel-help' });
 		for (const line of [
-			'左键拖 = 环绕 · 滚轮 = 缩放',
-			'右键拖 / ⌘或⇧+左键拖 = 平移',
-			'（macOS 的 Ctrl+点击被系统当右键）',
-			'WASD = 平飞 · Q/E = 升降 · Shift = 加速',
-			'点击节点 = 选中飞行并环绕 · ESC = 取消',
-			'F = 飞向选中 · R = 回总览',
-			'双击滑杆 = 回默认值',
+			t('help_orbit'),
+			t('help_pan'),
+			t('help_macos_ctrl'),
+			t('help_flight'),
+			t('help_focus_orbit'),
+			t('help_keys'),
+			t('help_double_click'),
 		]) {
 			helpBody.createDiv({ text: line });
 		}
@@ -215,17 +216,17 @@ export class ControlPanel {
 	}
 
 	private presetLabel(): string {
-		return this.settings.preset === 'deep-space' ? '视觉：深空' : '视觉：随主题';
+		return this.settings.preset === 'deep-space' ? t('visual_deep_space') : t('visual_adaptive');
 	}
 
 	private sizeByLabel(): string {
 		const m = this.settings.look.sizeBy;
-		return m === 'degree' ? '大小：链接数' : m === 'fileSize' ? '大小：文档量' : '大小：一致';
+		return m === 'degree' ? t('size_by_degree') : m === 'fileSize' ? t('size_by_file_size') : t('size_by_uniform');
 	}
 
 	private qualityLabel(): string {
 		const q = this.settings.qualityOverride;
-		return q === 'auto' ? '画质：自动' : q === 'high' ? '画质：高' : q === 'low' ? '画质：低' : '画质：移动模拟';
+		return q === 'auto' ? t('quality_auto') : q === 'high' ? t('quality_high') : q === 'low' ? t('quality_low') : t('quality_mobile');
 	}
 
 	private markActiveChip(id: string): void {
@@ -234,10 +235,10 @@ export class ControlPanel {
 
 	refreshAll(): void {
 		for (const sl of this.sliders) sl.refresh();
-		this.cruiseBtn?.setText(this.settings.cruise ? '巡航：开' : '巡航：关');
+		this.cruiseBtn?.setText(this.settings.cruise ? t('panel_cruise_on') : t('panel_cruise_off'));
 		this.presetBtn?.setText(this.presetLabel());
-		this.unresolvedBtn?.setText(this.settings.showUnresolved ? '未解析：显示' : '未解析：隐藏');
-		this.orphanBtn?.setText(this.settings.showOrphans ? '孤儿：显示' : '孤儿：隐藏');
+		this.unresolvedBtn?.setText(this.settings.showUnresolved ? t('panel_unresolved_show') : t('panel_unresolved_hide'));
+		this.orphanBtn?.setText(this.settings.showOrphans ? t('panel_orphans_show') : t('panel_orphans_hide'));
 		this.sizeByBtn?.setText(this.sizeByLabel());
 		this.qualityBtn?.setText(this.qualityLabel());
 	}

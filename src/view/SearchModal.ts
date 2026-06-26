@@ -1,6 +1,7 @@
 import type { App } from 'obsidian';
 import { SuggestModal, prepareFuzzySearch } from 'obsidian';
 import type { GraphNode } from '../types';
+import { t } from '../locales';
 
 interface Hit {
 	index: number;
@@ -16,7 +17,7 @@ export class NodeSearchModal extends SuggestModal<Hit> {
 		private onPick: (index: number) => void,
 	) {
 		super(app);
-		this.setPlaceholder('搜索笔记，回车飞过去…');
+		this.setPlaceholder(t('search_placeholder'));
 	}
 
 	getSuggestions(query: string): Hit[] {
@@ -44,7 +45,7 @@ export class NodeSearchModal extends SuggestModal<Hit> {
 		el.createDiv({ text: hit.node.name });
 		el.createDiv({
 			cls: 'gx-search-path',
-			text: `${hit.node.unresolved ? '未解析' : hit.node.id} · ${hit.node.degree} 链接`,
+			text: `${hit.node.unresolved ? t('unresolved') : hit.node.id} · ${hit.node.degree} ${t('links_count')}`,
 		});
 	}
 

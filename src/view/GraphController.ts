@@ -21,6 +21,7 @@ import { NodeSearchModal } from './SearchModal';
 import { collectFrames, observeLongTasks, writeBenchResult, sleep } from '../bench/bench';
 import type { QualityTier } from '../quality/tiers';
 import { TIERS } from '../quality/tiers';
+import { t } from '../i18n';
 
 const WARM_CACHE_MIN_COVERAGE = 0.8;
 const ESTABLISHING_MS = 3200;
@@ -145,7 +146,7 @@ export class GraphController {
 		const onLost = (e: Event) => {
 			e.preventDefault();
 			const mask = this.contentEl.createDiv({ cls: 'gx-mask' });
-			const btn = mask.createEl('button', { cls: 'gx-mask-btn', text: '渲染上下文丢失，点击重建' });
+			const btn = mask.createEl('button', { cls: 'gx-mask-btn', text: t.mask.contextLost });
 			btn.addEventListener('click', () => this.onContextLost?.());
 		};
 		canvas.addEventListener('webglcontextlost', onLost);
@@ -199,7 +200,7 @@ export class GraphController {
 		const director = this.director;
 		if (!renderer || !director) return;
 		this.maskEl = this.contentEl.createDiv({ cls: 'gx-mask' });
-		this.maskEl.createDiv({ cls: 'gx-mask-text', text: '构建星图…' });
+		this.maskEl.createDiv({ cls: 'gx-mask-text', text: t.mask.building });
 		// 等几帧让首批渲染就绪，再揭幕拉出
 		window.setTimeout(() => {
 			if (!this.maskEl) return;
@@ -249,7 +250,7 @@ export class GraphController {
 			this.layout.dispose();
 			this.layout = new MainThreadForceLayout();
 			this.layout.init(this.store.data, this.store.positions, params, initialAlpha);
-			new Notice('星系视图：后台线程不可用，已回退主线程布局');
+			new Notice(t.notice.workerUnavailable);
 		}
 	}
 
@@ -272,7 +273,7 @@ export class GraphController {
 		const total = this.app.vault.getMarkdownFiles().length;
 		this.store.setCaps(this.tier.nodeCap, this.tier.linkCap); // 变化时触发重建
 		if (this.tier.nodeCap !== null && total > this.tier.nodeCap && prev !== this.tier.id) {
-			new Notice(`移动档：已显示链接最多的前 ${this.tier.nodeCap} 个节点（共 ${total}）`);
+			new Notice(t.notice.mobileCap(this.tier.nodeCap, total));
 		}
 	}
 
@@ -287,7 +288,7 @@ export class GraphController {
 			if (this.lowFpsChecks >= 3) {
 				this.watchdogTripped = true;
 				this.applyTier();
-				new Notice('星系视图：已自动切换到性能模式（可在面板「高级」改回）');
+				new Notice(t.notice.autoPerf);
 			}
 		} else {
 			this.lowFpsChecks = 0;
@@ -350,7 +351,7 @@ export class GraphController {
 	/** 手动触发创世动画（坐标未沉降时给提示） */
 	playRevealManually(): void {
 		if (!this.layout.isSettled()) {
-			new Notice('星系还在成形中，沉降后再试');
+			new Notice(t.notice.notSettled);
 			return;
 		}
 		this.renderer?.playReveal();
@@ -360,7 +361,7 @@ export class GraphController {
 	shuffleColors(): void {
 		const groups = this.settings.colorGroups;
 		if (groups.length < 2) {
-			new Notice('先导入二维图谱配色，才能洗牌');
+			new Notice(t.notice.importFirst);
 			return;
 		}
 		const colors = groups.map((g) => g.color);
@@ -393,14 +394,14 @@ export class GraphController {
 	private async importColors(notify: boolean): Promise<void> {
 		const groups = await readGraphColorGroups(this.app);
 		if (!groups || groups.length === 0) {
-			if (notify) new Notice('未找到自带图谱的颜色分组（graph.json）');
+			if (notify) new Notice(t.notice.noColorGroups);
 			return;
 		}
 		this.settings.colorGroups = groups;
 		this.renderer?.setColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
 		this.saveSoon();
-		if (notify) new Notice(`已导入 ${groups.length} 组 2D 图谱配色`);
+		if (notify) new Notice(t.notice.importedColors(groups.length));
 	}
 
 	// ---------- 选中 / 聚焦 / 搜索 ----------
@@ -599,7 +600,7 @@ export class GraphController {
 		const c = this.counts;
 		el.setText(
 			`${this.hudFrames.length} fps · ${this.renderer?.drawCalls ?? 0} calls · ${c.nodes}n/${c.links}l · ` +
-				`${this.layout.isSettled() ? '已沉降' : '布局中'}`,
+				`${this.layout.isSettled() ? t.hud.settled : t.hud.settling}`,
 		);
 	}
 
@@ -636,7 +637,7 @@ export class GraphController {
 		if (this.store.getIncludeUnresolved() !== wantUnresolved) {
 			this.store.setIncludeUnresolved(wantUnresolved);
 		}
-		new Notice(`${scenario}：等待布局沉降…`);
+		new Notice(`${scenario}: waiting for layout to settle…`);
 		await this.waitSettle();
 		if (renderer.getBloomStrength() < 0.01) renderer.setBloomStrength(0.9);
 		await sleep(300);
@@ -644,7 +645,7 @@ export class GraphController {
 		this.benchMode = true;
 		const target = director.target.clone();
 		const sph = new Spherical().setFromVector3(renderer.camera.position.clone().sub(target));
-		new Notice(`${scenario}：20s 环绕测帧率…`);
+		new Notice(`${scenario}: 20s orbit fps measurement…`);
 		const stats = await collectFrames(20_000, (elapsed) => {
 			const angle = sph.theta + (elapsed / 20_000) * Math.PI * 2;
 			renderer.camera.position.setFromSpherical(new Spherical(sph.radius, sph.phi, angle)).add(target);
@@ -663,12 +664,12 @@ export class GraphController {
 			...stats,
 		};
 		await writeBenchResult(this.app, result);
-		new Notice(`${scenario} 完成：avg ${stats.avgFps.toFixed(1)} fps · ${renderer.drawCalls} calls`);
+		new Notice(`${scenario} done: avg ${stats.avgFps.toFixed(1)} fps · ${renderer.drawCalls} calls`);
 		return result;
 	}
 
 	private async benchColdLayout(): Promise<BenchResult> {
-		new Notice('S2：冷布局开始（预算化 tick，期间界面应保持可用）…');
+		new Notice('S2: cold layout starting (budgeted ticks; UI should stay responsive)…');
 		if (this.store.getIncludeUnresolved()) this.store.setIncludeUnresolved(false);
 		await sleep(300);
 		const longTasks = observeLongTasks();
@@ -697,7 +698,7 @@ export class GraphController {
 			longTaskTotalMs: lt.totalMs,
 		};
 		await writeBenchResult(this.app, result);
-		new Notice(`S2 完成：沉降 ${(settleMs / 1000).toFixed(1)}s / ${ticks} ticks，最长阻塞 ${lt.longestMs.toFixed(0)}ms`);
+		new Notice(`S2 done: settled in ${(settleMs / 1000).toFixed(1)}s / ${ticks} ticks, longest block ${lt.longestMs.toFixed(0)}ms`);
 		return result;
 	}
 

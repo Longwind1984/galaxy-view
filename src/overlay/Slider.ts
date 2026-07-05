@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 export interface SliderSpec {
 	label: string;
 	min: number;
@@ -35,7 +37,7 @@ export class Slider {
 		this.trackEl = root.createDiv({ cls: 'gx-slider-track' });
 		this.trackEl.createDiv({ cls: 'gx-slider-rail' });
 		this.fillEl = this.trackEl.createDiv({ cls: 'gx-slider-fill' });
-		this.trackEl.createDiv({ cls: 'gx-slider-notch', attr: { title: `默认 ${this.fmt(spec.defaultValue)}` } });
+		this.trackEl.createDiv({ cls: 'gx-slider-notch', attr: { title: t.panel.sliderDefault(this.fmt(spec.defaultValue)) } });
 		this.thumbEl = this.trackEl.createDiv({ cls: 'gx-slider-thumb' });
 
 		const bounds = root.createDiv({ cls: 'gx-slider-bounds' });

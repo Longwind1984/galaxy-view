@@ -2,11 +2,12 @@ import type { Translations } from './en';
 import { en } from './en';
 import { zh } from './zh';
 import { de } from './de';
+import { it } from './it';
 
 export type { Translations };
-export type Locale = 'en' | 'zh' | 'de';
+export type Locale = 'en' | 'zh' | 'de' | 'it';
 
-const DICTS: Record<Locale, Translations> = { en, zh, de };
+const DICTS: Record<Locale, Translations> = { en, zh, de, it };
 
 /**
  * Obsidian's UI display language ('' / 'en' for English, 'zh' / 'zh-TW' for
@@ -23,6 +24,7 @@ function detectLocale(): Locale {
 		const lang = (window.localStorage.getItem('language') ?? '').toLowerCase();
 		if (lang.startsWith('zh')) return 'zh';
 		if (lang.startsWith('de')) return 'de';
+		if (lang.startsWith('it')) return 'it';
 	} catch {
 		// localStorage may be unavailable (e.g. under tests) — fall through to default
 	}

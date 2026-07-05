@@ -14,7 +14,7 @@ structurally identical.
 ## Adding or changing a string
 
 1. Add/edit the key in `en.ts`.
-2. Add/edit the **same** key in every other locale file (currently `zh.ts`).
+2. Add/edit the **same** key in every other locale file (`zh.ts`, `de.ts`, …).
 3. Read it at the call site via `t.<group>.<key>`.
 
 Skipping step 2 is a **deliberate** compile error (`property is missing in
@@ -25,6 +25,6 @@ in every locale.
 
 ## Adding a new locale
 
-Copy `zh.ts` to e.g. `de.ts`, translate the values (keeping the keys), then
-register it in `index.ts` (add to the `DICTS` map, the `Locale` type, and
-`detectLocale()`).
+Copy an existing locale (e.g. `zh.ts`) to `<code>.ts`, translate the values
+(keeping the keys), then register it in `index.ts` (add to the `DICTS` map, the
+`Locale` type, and `detectLocale()`).

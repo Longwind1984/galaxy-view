@@ -1,13 +1,17 @@
 import type { App } from 'obsidian';
-import { TFile, getAllTags } from 'obsidian';
+import { TFile, getAllTags, moment } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
+import { getLang, t } from '../i18n';
 
 
 
 export interface OverlayCallbacks {
 	openNote: (id: string) => void;
 	focusNode: (index: number) => void;
+	/** 卡片上的关联深度（默认一度，不起眼地切二度） */
+	getSelectionDepth: () => 1 | 2;
+	onSelectionDepth: (depth: 1 | 2) => void;
 }
 
 /**
@@ -22,6 +26,8 @@ export class OverlayManager {
 	private hoverIndex = -1;
 	private card: HTMLElement;
 	private cardIndex = -1;
+	private cardCollapsed = false;
+	private cardPos: { x: number; y: number } | null = null; // 手动拖动后的位置（null=跟随节点）
 	private data: GraphData = { nodes: [], links: [] };
 	private graphRadius = 200;
 	private snippetToken = 0;
@@ -99,6 +105,7 @@ export class OverlayManager {
 	setSelection(index: number, neighbors: Set<number>): void {
 		for (const e of this.neighborEls) e.el.remove();
 		this.neighborEls = [];
+		if (index !== this.cardIndex) this.cardPos = null; // 选了新节点 → 卡片重新跟随；同节点（改深度）保留拖动位置
 		this.cardIndex = index;
 		if (index < 0) {
 			this.card.hide();
@@ -126,13 +133,27 @@ export class OverlayManager {
 	private buildCard(node: GraphNode, index: number): void {
 		this.card.empty();
 		this.card.show();
+		this.card.toggleClass('is-collapsed', this.cardCollapsed);
 
-		this.card.createDiv({ cls: 'gx-card-title', text: node.name });
-		const meta = this.card.createDiv({ cls: 'gx-card-meta' });
+		// —— 头部：标题 + 收起（拖拽把手，可移动整张卡）——
+		const head = this.card.createDiv({ cls: 'gx-card-head' });
+		head.createDiv({ cls: 'gx-card-title', text: node.name });
+		const collapseBtn = head.createEl('button', { cls: 'gx-card-collapse', text: this.cardCollapsed ? '+' : '–' });
+		collapseBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.cardCollapsed = !this.cardCollapsed;
+			this.card.toggleClass('is-collapsed', this.cardCollapsed);
+			collapseBtn.setText(this.cardCollapsed ? '+' : '–');
+		});
+		if (!this.mobileCard) this.bindCardDrag(head);
+
+		// —— 主体（可收起）——
+		const body = this.card.createDiv({ cls: 'gx-card-body' });
+		const meta = body.createDiv({ cls: 'gx-card-meta' });
 		const dot = meta.createSpan({ cls: 'gx-card-dot' });
 		dot.style.background = this.renderer.nodeColorHex(index);
 		meta.createSpan({
-			text: node.unresolved ? '未解析链接（笔记尚不存在）' : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : '根目录',
+			text: node.unresolved ? t('card.unresolved') : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : t('card.root'),
 		});
 
 		const file = node.unresolved ? null : this.app.vault.getAbstractFileByPath(node.id);
@@ -142,33 +163,72 @@ export class OverlayManager {
 			const cache = this.app.metadataCache.getFileCache(tfile);
 			const tags = cache ? (getAllTags(cache) ?? []) : [];
 			if (tags.length > 0) {
-				const tagRow = this.card.createDiv({ cls: 'gx-card-tags' });
+				const tagRow = body.createDiv({ cls: 'gx-card-tags' });
 				for (const t of tags.slice(0, 5)) tagRow.createSpan({ cls: 'gx-card-tag', text: t });
 			}
 		}
 
-		const stats = this.card.createDiv({ cls: 'gx-card-stats' });
+		const stats = body.createDiv({ cls: 'gx-card-stats' });
 		stats.setText(
-			`↩ ${node.inDegree} 反链 · → ${node.outDegree} 出链` +
-				(tfile ? ` · 改于 ${new Date(tfile.stat.mtime).toLocaleDateString('zh-CN')}` : ''),
+			t('card.stats', { in: node.inDegree, out: node.outDegree }) +
+				(tfile ? ` · ${moment(tfile.stat.mtime).locale(getLang() === 'zh' ? 'zh-cn' : 'en').format('ll')}` : ''),
 		);
 
 		if (tfile) {
-			const snippetEl = this.card.createDiv({ cls: 'gx-card-snippet', text: '…' });
+			const snippetEl = body.createDiv({ cls: 'gx-card-snippet', text: '…' });
 			const token = ++this.snippetToken;
 			void this.app.vault.cachedRead(tfile).then((text) => {
 				if (token !== this.snippetToken) return; // 已切换选中，丢弃过期结果
-				snippetEl.setText(stripMarkdown(text).slice(0, 120) || '（空笔记）');
+				snippetEl.setText(stripMarkdown(text).slice(0, 120) || t('card.empty'));
 			});
 		}
 
-		const actions = this.card.createDiv({ cls: 'gx-card-actions' });
+		const actions = body.createDiv({ cls: 'gx-card-actions' });
 		if (!node.unresolved) {
-			const openBtn = actions.createEl('button', { text: '打开笔记' });
+			const openBtn = actions.createEl('button', { text: t('card.open') });
 			openBtn.addEventListener('click', () => this.cb.openNote(node.id));
 		}
-		const focusBtn = actions.createEl('button', { text: '聚焦' });
+		const focusBtn = actions.createEl('button', { text: t('card.focus') });
 		focusBtn.addEventListener('click', () => this.cb.focusNode(index));
+
+		// 关联深度：低优先级，卡片底部一行不起眼的一度/二度切换
+		const depthRow = body.createDiv({ cls: 'gx-card-depth' });
+		depthRow.createSpan({ cls: 'gx-card-depth-label', text: t('card.links') });
+		const mini = depthRow.createDiv({ cls: 'gx-card-depth-mini' });
+		const cur = this.cb.getSelectionDepth();
+		const mkDepth = (depth: 1 | 2, label: string) => {
+			const b = mini.createEl('button', { text: label });
+			b.toggleClass('is-on', cur === depth);
+			b.addEventListener('click', () => this.cb.onSelectionDepth(depth));
+		};
+		mkDepth(1, t('card.d1'));
+		mkDepth(2, t('card.d2'));
+	}
+
+	/** 卡片可拖动：拖头部把手，设手动位置；update() 不再自动跟随节点 */
+	private bindCardDrag(handle: HTMLElement): void {
+		handle.addEventListener('pointerdown', (e) => {
+			if ((e.target as HTMLElement).closest('button')) return; // 收起按钮不触发拖动
+			e.preventDefault();
+			handle.setPointerCapture(e.pointerId);
+			const rootRect = this.root.getBoundingClientRect();
+			const cardRect = this.card.getBoundingClientRect();
+			const baseX = cardRect.left - rootRect.left;
+			const baseY = cardRect.top - rootRect.top;
+			const startX = e.clientX;
+			const startY = e.clientY;
+			const move = (ev: PointerEvent) => {
+				this.cardPos = { x: baseX + (ev.clientX - startX), y: baseY + (ev.clientY - startY) };
+				this.card.style.transform = `translate3d(${this.cardPos.x}px, ${this.cardPos.y}px, 0)`;
+			};
+			const up = (ev: PointerEvent) => {
+				handle.releasePointerCapture(ev.pointerId);
+				handle.removeEventListener('pointermove', move);
+				handle.removeEventListener('pointerup', up);
+			};
+			handle.addEventListener('pointermove', move);
+			handle.addEventListener('pointerup', up);
+		});
 	}
 
 	/** 每帧：投影所有被追踪节点，translate3d 定位（GPU 合成，无重排） */
@@ -195,7 +255,8 @@ export class OverlayManager {
 			const p = this.renderer.projectNode(this.hoverIndex, w, h);
 			if (!p.behind) this.hoverEl.style.transform = `translate3d(${p.x.toFixed(1)}px, ${(p.y - 18).toFixed(1)}px, 0)`;
 		}
-		if (this.cardIndex >= 0 && !this.mobileCard) {
+		if (this.cardIndex >= 0 && !this.mobileCard && !this.cardPos) {
+			// 未手动拖动时才自动跟随节点投影
 			const p = this.renderer.projectNode(this.cardIndex, w, h);
 			if (!p.behind) {
 				const flip = p.x + 296 > w;

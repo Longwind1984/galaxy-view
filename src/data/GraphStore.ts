@@ -2,6 +2,8 @@ import type { App } from 'obsidian';
 import { Component, debounce } from 'obsidian';
 import type { GraphData } from '../types';
 import { buildGraph } from './buildGraph';
+import { buildAdjacency } from './Adjacency';
+import type { Adjacency } from './Adjacency';
 import { seedPosition, seedRadius } from './seed';
 
 /**
@@ -13,6 +15,8 @@ export class GraphStore extends Component {
 	data: GraphData = { nodes: [], links: [] };
 	/** x,y,z × nodes.length，布局引擎原地写，渲染器只读 */
 	positions = new Float32Array(0);
+	/** CSR 邻接：选中/巡游按邻域 O(邻域) 而非 O(全边)；随数据每次重建 */
+	adjacency: Adjacency = { offset: new Int32Array(1), neighbor: new Int32Array(0), linkOf: new Int32Array(0) };
 
 	private includeUnresolved = false;
 	private includeOrphans = true;
@@ -104,6 +108,7 @@ export class GraphStore extends Component {
 
 		this.data = next;
 		this.positions = positions;
+		this.adjacency = buildAdjacency(next); // 派生数据，键于新（可能重排）索引
 		this.onChanged?.();
 	}
 }

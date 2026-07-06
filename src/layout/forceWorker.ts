@@ -1,6 +1,7 @@
 import { forceLink, forceManyBody, forceSimulation, forceX, forceY, forceZ } from 'd3-force-3d';
 import type { SimLink, SimNode, Simulation } from 'd3-force-3d';
 import type { LayoutParams } from '../types';
+import { forceRadialCore, forceSpiral } from './galaxyForces';
 
 /**
  * 布局 Worker（M3）：d3-force-3d 完全离主线程。
@@ -66,6 +67,9 @@ function applyParams(params: LayoutParams): void {
 	(sim.force('x') as import('d3-force-3d').PositionForce<WNode> | undefined)?.strength(params.centerPull);
 	(sim.force('y') as import('d3-force-3d').PositionForce<WNode> | undefined)?.strength(params.centerPull + params.flatten);
 	(sim.force('z') as import('d3-force-3d').PositionForce<WNode> | undefined)?.strength(params.centerPull);
+	// 自定义力无干净 .strength() setter → 用新强度重建（O(n) initialize 一次）
+	sim.force('core', forceRadialCore(params.coreGravity, degrees));
+	sim.force('spiral', forceSpiral(params.spiral));
 }
 
 function schedule(): void {
@@ -134,6 +138,8 @@ ctx.onmessage = (e: MessageEvent) => {
 				.force('x', forceX<WNode>(0).strength(msg.params.centerPull))
 				.force('y', forceY<WNode>(0).strength(msg.params.centerPull + msg.params.flatten))
 				.force('z', forceZ<WNode>(0).strength(msg.params.centerPull))
+				.force('core', forceRadialCore(msg.params.coreGravity, degrees))
+				.force('spiral', forceSpiral(msg.params.spiral))
 				.stop();
 			sim.alpha(msg.initialAlpha);
 			freeBuffers = [msg.bufA, msg.bufB];

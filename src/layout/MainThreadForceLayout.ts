@@ -2,6 +2,7 @@ import { forceLink, forceManyBody, forceSimulation, forceX, forceY, forceZ } fro
 import type { SimLink, SimNode, Simulation } from 'd3-force-3d';
 import type { GraphData, LayoutParams } from '../types';
 import type { LayoutEngine } from './LayoutEngine';
+import { forceRadialCore, forceSpiral } from './galaxyForces';
 
 interface LNode extends SimNode {
 	x: number;
@@ -42,6 +43,8 @@ export class MainThreadForceLayout implements LayoutEngine {
 			.force('x', forceX<LNode>(0).strength(params.centerPull))
 			.force('y', forceY<LNode>(0).strength(params.centerPull + params.flatten))
 			.force('z', forceZ<LNode>(0).strength(params.centerPull))
+			.force('core', forceRadialCore(params.coreGravity, this.degrees))
+			.force('spiral', forceSpiral(params.spiral))
 			.stop();
 		this.sim.alpha(initialAlpha);
 		this._ticks = 0;
@@ -69,6 +72,8 @@ export class MainThreadForceLayout implements LayoutEngine {
 		(sim.force('x') as import('d3-force-3d').PositionForce<LNode> | undefined)?.strength(params.centerPull);
 		(sim.force('y') as import('d3-force-3d').PositionForce<LNode> | undefined)?.strength(params.centerPull + params.flatten);
 		(sim.force('z') as import('d3-force-3d').PositionForce<LNode> | undefined)?.strength(params.centerPull);
+		sim.force('core', forceRadialCore(params.coreGravity, this.degrees));
+		sim.force('spiral', forceSpiral(params.spiral));
 		this.reheat(0.5);
 	}
 

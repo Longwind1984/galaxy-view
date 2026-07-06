@@ -4,6 +4,160 @@
 
 ---
 
+## 2026-07-06 · 导览模块从产品层重构为「漫游 + 连接两篇」（方向 C），computer-use 亲验双通
+
+### 做了什么
+Rick 选定方向 C：把旧的「4 个工程味模式 chip 汤」拆成两个按意图命名的动作。构建/lint/单测（23，含改写的 tour 测试）全绿，部署 dev-vault，computer-use 亲测两条都通。
+
+- **漫游 Wander**：一个 `▶ 开始/■ 停止` 按钮 + 速度滑杆，**不再暴露任何模式**。背后一个 director 自动混合——主要是「飞向加权节点（度数×随机，枢纽自然常被光顾）→环绕→弹卡」，每第 4 拍插一段样条飞掠添变化。亲验：飞到「思想家网络」（103 出链）弹卡 → 7s 后「法兰克福学派」→ 连续巡游、零崩溃。
+- **连接两篇 Connect two**：独立 `选两篇…` 按钮 → 选起点 → 选终点 → `shortestPath` BFS → 逐节点飞。亲验：选「思想家网络→法兰克福学派」飞行成行（慢速 0.05 抓到中途弹卡 + 按钮变「停止」）。
+- 面板：外观区 8 预设不变；导航与动效区现为 自动环绕 / 漫游 / 连接两篇 三块 + 重播开场。
+
+### 关键排障：连接两篇「点了不飞」是 computer-use 假象，非 bug
+连接两篇一度看似不飞（点完终点＝全局视角、无卡、按钮「开始」）。逐层证否后定位真因：**短的有限巡游（2 节点 ≈10–15s）在 computer-use 每次「点击→截图」的往返间隙里就跑完了**——computer-use 每步会把 Obsidian 切到后台，而停留是**实时计时**的，所以巡游在后台照常推进、等我截图时已 finish+回中心。漫游是无限循环、任何时刻都停在某节点，所以我每次都能抓到；连接两篇会结束，就总被我错过。用 speed 0.05（每节点停留 100s）把总时长拉到 200s+ 后，一截就抓到中途弹卡 + 按钮「停止」→ **确证功能正常**。控制台隔离验证：shortestPath 返回正确路径（连通枢纽对路径长 2）、tickGuided 停留逻辑正确（手控 tick 停留期不推进）、selectNode 飞行正常。
+
+### 文件级变更
+- `src/tour/TourDirector.ts`：重写为 `startWander`/`startGuided` 双 API + `tickWander`（回顾拍 + 每 4 拍飞掠）/`tickGuided`（队列走）；去掉 rediscover/flyby/grandtour 用户模式。
+- `src/view/GraphController.ts`：`toggleTour`→startWander；`startGuidedTour`→`startConnectTwo`；删 `setTourMode`；回调 `onConnectTwo`；去 `TourMode` import。
+- `src/overlay/ControlPanel.ts`：导览块重建为 漫游 block + 连接两篇 block；删模式 chips/`TOUR_MODES`/`onTourMode`。
+- `src/settings.ts`：`TourSettings` 精简为 `{speed}`；删 `TourMode`、DEFAULT/merge 的 mode/hopCount。
+- `src/i18n/{en,zh}.ts`：删 `tour.mode.*`、`nav.tour*`；加 `nav.wander/wanderSub/connect/connectGo/connectSub`。
+- `tests/tour.test.ts`：改写为 wander/guided 用例（6 个）。
+
+## 2026-07-06 · 取景改 FOV 自适应+绕质心（全局视角/居中）＋自动环绕仅拖动才打断（computer-use 亲验）
+
+### 做了什么（1、2 已 computer-use 亲测通过；3 待 Rick 定方向）
+- **① 初始/回中心视角太近 → 改「按实际节点云 FOV 取景 + 绕质心」**：旧版盯世界原点、距离＝`种子半径×固定倍率`，力学一铺展就太近、且质心漂移导致画面偏一边、环绕时来回甩。新版 `computeFraming()` 算**真实质心 + 到质心距离的 95 分位半径**（避开离群孤儿），取景距离＝`fitRadius / sin(FOV/2) × 1.5` 余量，相机绕质心。→ 真·全局视角、居中、环绕不再偏。亲测：回中心后星系居中、约占画面 65%、留白舒适；转 4s 仍居中。
+- **② 自动环绕太容易打断 → 只有真拖动/缩放才打断**：旧版 pointerdown 即 `markInput` 停环绕（连点选都停）+ 10s 才恢复。新版按下不停，指针移动过 4px 阈值才算拖动→才停；滚轮/触摸拖动照停；`resumeDelayMs` 10s→6s。亲测：在空白处单击一下，之后 4s 相机仍在环绕（核心从左下转到中右），点击不再打断。OrbitControls 每帧读当前机位，停环绕交接无跳变。
+
+### 文件级变更
+- `src/interactions/CameraDirector.ts`：新增 `FRAMING_MARGIN=1.5`、`DRAG_THRESHOLD_PX=4`；`framingPosition/setInitialFraming/resetView` 改为收 `(center, fitRadius)` 并按 FOV 算距离；`bindPointer` 改为 pointermove 过阈值才 `markInput`（滚轮/touchmove 照旧打断）。
+- `src/view/GraphController.ts`：新增 `computeFraming()`（质心+95 分位半径），三处取景调用（初始/开场/回中心）改用它。
+- `src/constants.ts`：`CRUISE.resumeDelayMs` 10_000→6_000。
+
+### 未尽
+- **③ 完全重构导览模块（从产品设计起）**：已做产品批判 + 三个方向待 Rick 拍板，再做可预览版本。当前导览＝4 个工程味模式 chip 混装「氛围观赏」与「寻路」两种意图，认知负担高、无叙事收口。
+
+## 2026-07-05（续）· 面板三项微调 + 定位并修复「导览冻结整个视图」的真 bug（computer-use 亲测）
+
+### 做了什么
+Rick 反馈三点，全部落地；并用 computer-use 亲自在 Obsidian 里复现 + 定位 + 修复 + 验证了「导览点了没反应」的真因。构建/lint/单测（22）全绿，两轮部署 dev-vault（末次含 flyby 修复）。
+
+- **删掉「悬停预设即预览 · 点击才应用」文案**：交互已自解释时这类说明是噪声。同步把该原则写进**全局 `~/.claude/CLAUDE.md`**（自主权与把关章）：交互方式明显 / 符合直觉 / 低成本可试出时，不加说明性文案。
+- **「导航与动效」区改为可折叠**：原是常驻静态区，现包成 `<details>`（默认展开、开合持久化，section id=`nav`）；summary 复用「区」标题观感（大写+字距）仅多一个 ▸ caret。
+- **「力学」分区下移到「辉光」之后**：顺序改为 外观与配色 → 辉光 → 力学。
+
+### 真因：flyby 的 CatmullRom 采样抛错 → 冻结整个渲染循环（＝「点了没反应」）
+先做了静态审计（链路完整、已部署），一度以为无法复现。**后按 Rick 要求用 computer-use 打开 Obsidian dev-vault 亲测**：把 Galaxy view 窗口从副屏（Electron/WebGL 在副屏被截屏成全黑）挪到内建屏，点 ▶ 巡游——按钮变「停止」但**画面冻结、拖拽无响应**。开 DevTools 控制台拿到确证：
+
+```
+Uncaught TypeError: Cannot read properties of undefined (reading 'x')
+  at Vector3.distanceToSquared → CatmullRomCurve3.getPoint → getPointAt
+  at CameraDirector.update → loop
+```
+
+flyby 用 `CatmullRomCurve3` 造样条，某控制点是 NaN/undefined（默认 centripetal 类型按点距开方，遇异常点直接读 undefined.x）→ 在 **`CameraDirector.update` 里抛错**。而我上一版的 try/catch 只包了 `tour.tick`、**没包 `director.update`**——异常冒泡出 rAF `loop`、`requestAnimationFrame` 不再排下一帧，**整个渲染循环死掉、全视图冻结**（DOM 面板仍活，所以按钮还能切）。这正是「首次跑 flyby 就整个插件卡死」＝「完全没反应」。
+
+**三层修复**：① `flyPath` 清洗控制点（剔非有限点 + 去相邻重合点）并改用 uniform `'catmullrom'`；② `update` 里给曲线采样加 try/catch + 非有限兜底，异常就地放弃该段路径；③ rAF `loop` 把 `tour.tick` 与 `director.update` 一起包进 try/catch，任何相机异常都 abort 巡游 + `cancelMotion()` + 弹 Notice，**绝不再冻结循环**。
+
+**亲测验证（修复后）**：点 ▶ 巡游 → 按钮变「停止」、**控制台零报错**、相机沿样条连续飞掠（间隔 2s 两帧画面明显不同）、再点「停止」干净回落。#2/#3 也同屏确认（力学在辉光下、导航区带 ▾ 可折叠、预览提示已消失）。
+
+### 文件级变更
+- `src/interactions/CameraDirector.ts`：`flyPath` 清洗控制点 + uniform 曲线；`update` 路径分支 try/catch + 非有限兜底；新增 `cancelMotion()`。
+- `src/view/GraphController.ts`：rAF loop 的 try/catch 扩到 `director.update`，catch 里 `abort()` + `cancelMotion()` + Notice；toggleTour try/catch；guided 入口即时 Notice；起不了给 tourEmpty。
+- `src/overlay/ControlPanel.ts`：删预览提示行；辉光/力学换序；导航区包成可折叠 `gx-zone-section`（navBody 承载环绕/导览/重播）。
+- `src/i18n/{en,zh}.ts`：删 `preset.previewTip`；加 `notice.tourEmpty/guidedPick/tourError`。
+- `styles.css`：加 `.gx-zone-section` summary 样式；删 `.gx-preview-tip`。
+- `~/.claude/CLAUDE.md`：新增「文案克制」原则。
+
+---
+
+## 2026-07-05 · 设置面板 v4 重构：先在本地 HTML demo 打磨，定稿后整体回填插件并部署（待 Rick 眼验）
+
+### 做了什么
+按 Rick 的《面板优化实施说明》+ 多轮迭代，先在**本地可交互 HTML demo**（`demo/panel-demo.html`，起了个静态服务器 localhost:4319 边改边验）把整套交互敲定，Rick 确认后**整体回填真插件**，构建/静态检查/单测全绿并部署到 dev-vault。**这一大改我这端无法在 Obsidian 里眼验，需 Rick 在 dev-vault 手验。**
+
+- **信息架构按意图重排**：外观区（预设→细调分区）/ 导航与动效区（自动环绕·导览·重播开场）/ 底栏（全部重置·存为预设·高级）。fps 从顶栏下放到「高级」，顶栏只留笔记数。
+- **预设↔参数关系显性化**：悬停预设**即时预览**视觉效果（辉光/大小/星空/配色实时应用到 3D，物理只在点击提交——悬停不重热布局，避免卡顿）；点击才提交。细调分区带**「由 X 设定 / 已自定义」标记 + 分区级「↺ 还原」**（靠对比当前设置与激活预设算脏）。
+- **预设重做**：合并为一条扁平列表（去掉星系/特效分类），8 个预设在**有无星空背景 / 配色主题 / 节点大小 / 力学 / 辉光**五维同时拉大差异；每个预设**手绘小 icon**（`presetIcons.ts`，createSvg 画，按主题色染）+ 功能副标题。
+- **自定义预设**：存为我的预设 → 可**排序（↑↓）+ 删除（原地确认 ✓/✕）**，持久化在 settings.customPresets。
+- **关联深度移出面板 → 节点卡片**：选中默认点亮一度；卡片底部一行不起眼的「关联 · 一度/二度」切换。
+- **巡航→自动环绕、巡游/探索→导览**，两者对等成块；创世动画确认为**纯重播**（切预设不触发它），改名「重播开场动画」下放到导航区。
+- **画质自动策略改双向 + 迟滞**：auto 从最高档起步；在 high 连续 3×5s<30fps→降 low，在 low 连续 4×5s>55fps（有余量）→升回 high（不同阈值/次数=迟滞防抖）。取代旧的「单向降档、整会话不回升」。
+- **核心手势收进常驻「?」帮助浮层**（不可永久 dismiss），删掉旧的可关闭提示横幅。
+
+### 关键决策与被否决备选
+- **两处「先查代码」结论**：① 创世动画=纯 `playReveal` 重播，且 `applyStylePreset` 不调它 → 按「重播」处理、下放。② 预设是 `markActiveChip` 单选 → 统一单选高亮。
+- **悬停预览只覆盖视觉参数（不含物理）**：物理预览要重热力布局，每次 hover 都重热会卡且乱；故物理只在点击提交。面板暂不做滑杆级 hover 预览（3D 已给到最直接反馈）。
+- **保留星系隐喻与诗意命名**（产品资产），靠 icon+副标题+悬停预览降低学习成本，而非改名简化。
+- **先 demo 后回填**：面板是纯用户可见层，按协议用「可看的版本让 Rick 选」，定稿再动插件，降返工。
+
+### 当前状态：能跑什么、怎么验
+- 分支 `feat/v0.2`（**未提交**）。构建/lint/单测全绿（22/22）。dev 构建已部署 dev-vault（main.js 07-05 00:03，端口标记齐全）。
+- demo 仍在 localhost:4319（`preview_start` 起的静态服务器），Rick 可继续用来对照。
+- **待 Rick 在 dev-vault 手验**（reload 插件）：① 预设卡 icon/副标题、**悬停看 3D 实时预览**、点击提交；② 分区「由 X 设定/已自定义/还原」；③ 存预设→排序/删除（确认）；④ 选中节点→卡片上一度/二度；⑤ 自动环绕/导览分区；⑥ 画质 auto 双向调度（跑 S1-S3 压一压看会不会升降档）。
+  - **注意**：dev-vault 旧 data.json 存的是之前测试的物理参数、activePreset 无值→默认 galaxy，所以初始「力学/配色」分区可能显示「已自定义」；**点任一预设或「全部重置」即同步**成整套。
+
+### 未尽事项 / 已知
+- 全部为起点值（力/预设/画质阈值/巡游节奏），待眼调。
+- 我无法眼验插件渲染；若有交互/视觉 bug，靠 Rick 反馈修。
+- 旧的 `hintsSeen` 设置、`panel.firstRunHint`、`cycleSelectionDepth` 变为无用（无害，未清）。
+
+### 文件级变更清单
+- 新增：`demo/panel-demo.html`（交互原型）、`demo/index.html`（重定向）、`src/overlay/presetIcons.ts`（createSvg 手绘 8 预设 icon）、`.claude/launch.json`（demo 静态服务器配置，在 Obsidian_PKM 根）
+- `src/render/stylePresets.ts`（8 预设重做 + starfield/theme/frameElevDeg，扁平）
+- `src/settings.ts`（+activePreset/customPresets + 校验）
+- `src/view/GraphController.ts`（applyStylePreset 套 starfield+theme+activePreset；previewStylePreset/endStylePreview；saveCurrentAsPreset/moveCustomPreset/deleteCustomPreset/restorePresetSection；看门狗双向 autoLow；HUD 拆分 fps→advStatsEl；卡片深度回调；buildPanel 回调换新）
+- `src/overlay/ControlPanel.ts`（**整体重写**为 v4：分区 IA + 预设卡 + 悬停预览 + 分区标记/还原 + 自定义预设排序/删除确认 + ?帮助浮层 + 画质分段 + fps→advanced）
+- `src/overlay/OverlayManager.ts`（卡片加一度/二度深度控件 + 回调）
+- `src/i18n/{en,zh}.ts`（面板重构一批新键：zone/preset.sub/sec/mine/nav/quality.autoSub/card 等）
+- `styles.css`（面板 v4 全套样式 + 卡片深度控件；caret 改用 span）
+
+## 2026-07-04 · v0.2 公开就绪（英文/i18n + 银河重做 + 预设包 + 二度选中）+ v0.3 巡游系统（代码完成，待 dev-vault 眼验）
+
+### 做了什么
+面向公开 Obsidian 用户做「下一个版本」。按 Rick 拍板分两期，本次一口气把两期代码都写完并跑绿了构建/静态检查/单测；**视觉与相机行为还没在 Obsidian 里眼验**（我这端起不了 GUI），下一步需要 Rick 在 dev-vault 里看。
+
+- **英文界面 / i18n（v0.2 A）**：新建 `src/i18n/`（en 为准 + zh 镜像 + `t()` + 语言检测链），把面板/卡片/搜索/命令/通知里约 58 处硬编码中文全部抽成键；**英文成为公开默认**，`getLanguage()` 检测跟随 Obsidian，可在设置页手选 Auto/English/中文。新增插件**设置页**（语言、画质、视觉模式、显示孤儿/未解析、全部重置），与画布浮动面板读写同一份设置。卡片日期改 `moment().format('ll')` 本地化。
+- **面板信息架构（v0.2 B）**：首屏只留搜索/回中心/巡航/风格 chips；分区按新手频次重排（外观→力学→辉光→巡航→探索→高级）；**分区开合状态持久化**；首次打开显示一行可关闭提示替代 7 行帮助墙；移动端首屏收起面板。
+- **银河布局重做（v0.2 C）**：定位「银河太宽」根因＝**缺一个力**（旧实现只把均匀球压扁成均匀薄饼）。新增两个 Worker 端自定义力：`coreGravity`（径向核心引力＝致密亮核＋径向密度梯度，按度数加权让 hub 沉核）+ `spiral`（切向旋臂）。两力都 alpha 缩放、沉降后趋零、不炸暖图；**同一实现同时供 Worker 与主线程回退**（`galaxyForces.ts` 单一来源）。相机新增取景仰角，盘类预设俯视看臂。
+- **预设包（v0.2 D）**：重做「银河」默认，新增 4 个 NASA 灵感预设——旋臂星系 / 轨道(Eyes) / 深空场(JWST) / 超新星；chips 分「星系/特效」两组。
+- **二度关联选中（v0.2 E）**：新建 CSR 邻接表（`Adjacency.ts`，随数据重建），选中改为邻域 BFS（取代每次点击 O(全边) 扫描）；可选展示二度关联＝**分级调暗**（选中/一度全亮、二度外壳、其余淡出，复用单 float aDim，零新增 draw call）；常用行加「关联深度 1/2」按钮；**双击节点＝打开笔记**。补了 6 个 Adjacency 单测。
+- **巡游/自动驾驶系统（v0.3）**：CameraDirector 加可复用**样条路径基元** `PathTween`（CatmullRom、弧长匀速、任何输入即停、零每帧分配）；新建 `TourDirector` 状态机（tick 由 rAF 的 paused 守卫驱动 → 隐藏视图自然冻结）。三种模式：随机回顾（度数加权+LRU）、小行星飞掠（样条穿星场）、枢纽大巡游（访问 top-hub 后回总览）。面板加「探索」分区（开始/停止 + 模式 chips + 速度），命令面板加「开始/停止巡游」。移动档整套禁用。
+
+### 关键决策与被否决的备选
+- **minAppVersion 1.7.2 → 1.8.7**（被迫）：用 `getLanguage()` 做语言检测，obsidianmd linter 要求最低版本 ≥1.8.7，否则报 no-unsupported-api。1.8.7 到 2026-07 已足够老，遂上调；随之删掉多余的 localStorage 回退。备选「保 1.7.2 + 运行时护栏」被 linter 否决。
+- **预设包放进 0.2 而非 0.3**（对 Q1 排期描述的微调，已在计划里标注请 Rick 批准时留意）：新力落地后 4 个预设几乎只是参数对象，近零成本；0.3 遂专注巡游系统这一最大新子系统。
+- **recommendedTheme 不自动套用**：预设带荐配色元数据，但 v0.2 不自动改用户配色——保持「形/背景/配色」三轴解耦（计划的头条原则），避免惊吓。
+- **飞掠暂不做压路侧倾（banking）**：改 `camera.up` 交回 OrbitControls 易留歪地平线，且我这端无法眼验；先上稳的切线前瞻版本，侧倾留后续。
+- **相机仰角只存值、不立刻甩镜头**：切盘类预设后仰角下次「回中心/R」生效，避免打断当前交互（也可后续做「仅 idle 时自动倾斜」）。
+- **分级调暗值 1.0/1.0/0.45/0.12**：一度保持与旧版一致（老用户无回归），二度作外壳——起点值，四个常量随时可调。
+
+### 当前状态：现在能跑什么，怎么跑
+- 分支 `feat/v0.2`（**未提交**，等 Rick 发话再 commit）。
+- 自动验证全绿：`npm run build`（tsc + esbuild production）零错、`npm run lint` 零错、`npm test` 14/14 过（含 6 个新 Adjacency 单测）。prod 产物已确认不含 dev 命令串。
+- **待 Rick 手验（我起不了 Obsidian GUI）**：`npm run dev` 直出 dev-vault → 打开 Obsidian dev-vault，重点看：① 银河是否「更像银河」（致密核/旋臂/俯视取景）——切各预设+调 core/spiral 滑杆，眼选定稿数值；② 设置页切 EN/中文面板即时重建；③ 关联深度 1↔2 的分级调暗与双击开笔记；④ 三种巡游模式（任意输入即停、飞掠不晕、大巡游回总览）；⑤ 跑 dev 命令 S1/S2/S3 + S4 金丝雀确认性能门与零泄漏（尤其暖图切预设的重热稳定性、飞掠帧率）。
+
+### 未尽事项与已知问题
+- **审美未定稿**：所有力强度/预设参数/相机仰角/巡游停留时长都是起点值，等 Rick 眼选。
+- **两处未实现（已知）**：两点引导路径（Guided Path，设计即定为 0.3 stretch）；选中打磨里的 悬停一度环 + Tab 邻居循环（与 dim 系统交互，留 fast-follow）；飞掠侧倾。
+- **面板「探索」按钮的运行态**：靠 TourDirector 的 onStateChange 回同步 play/stop，自然结束（大巡游）也会同步；语言切换重建面板后按钮回到「开始」（不影响功能）。
+- **老用户升级影响**：新的 coreGravity/spiral 默认值会让老用户的银河也长出致密核（v0.2 本就是银河重做，视为改进）；暖启动坐标缓存在低 alpha 下由 alpha 缩放的新力温和收敛，不会瞬间甩开。
+- 未提交、未发版；发版需另走 `npm version` + CI（本次未动）。
+
+### 文件级变更清单
+- 新增：`src/i18n/{index,en,zh}.ts`、`src/settings/SettingsTab.ts`、`src/data/Adjacency.ts`、`src/layout/galaxyForces.ts`、`src/tour/TourDirector.ts`、`tests/adjacency.test.ts`
+- 设置/类型：`src/settings.ts`（+language/panelSections/hintsSeen/selectionDepth/tour 五组字段 + coreGravity/spiral 入 PhysicsSettings + 默认改重做后银河 + merge 校验 + toLayoutParams 透传）、`src/types.ts`（LayoutParams +coreGravity/spiral）
+- 布局：`src/layout/forceWorker.ts` + `src/layout/MainThreadForceLayout.ts`（注册/重建两个新力，共用 galaxyForces）
+- 渲染/预设：`src/render/stylePresets.ts`（银河重做 + 4 新预设 + nameEn/group/frameElevDeg/recommendedTheme）、`src/render/AggregateRenderer.ts`（setFocus 改分级权重、setSelectedLinks 改 tier1/tier2 单层）
+- 相机：`src/interactions/CameraDirector.ts`（framingElevDeg + setFramingElev + PathTween/flyPath + update 路径分支 + markInput 打断 path）
+- 数据：`src/data/GraphStore.ts`（持 adjacency，rebuild 里 buildAdjacency）
+- 控制器：`src/view/GraphController.ts`（i18n 通知/HUD、rebuildPanel/syncFromSettings、applyStylePreset 收 StylePreset+取景仰角、selectNode 重写为 BFS 分级、cycleSelectionDepth、双击开笔记、TourDirector 实例化+tick+toggle/setMode/setSpeed、onDataChanged/applyTier 中止巡游、启动取景仰角）
+- 面板/覆盖层：`src/overlay/ControlPanel.ts`（全量 i18n + IA 重排 + 分区持久化 + 首屏提示 + genesis 文字链 + chip 分组 + 深度按钮 + 探索分区 + setTourRunning）、`src/overlay/OverlayManager.ts`（卡片 i18n + moment 日期）、`src/overlay/Slider.ts`（notch i18n）、`src/view/SearchModal.ts`（i18n）
+- 入口/清单：`src/main.ts`（setLang + addSettingTab + 命令名/通知 i18n + tour 命令）、`manifest.json`（minAppVersion 1.8.7）、`styles.css`（首屏提示/文字链/chip 分组样式）
+
+---
+
 ## 2026-06-15 · 修复社区商店自动审核失败 → 0.1.1
 
 ### 做了什么

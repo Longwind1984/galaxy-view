@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Galaxy View · Panel Demo v3</title>
+<style>
+  :root {
+    --bg: #05060c; --panel-bg: rgba(15,18,29,0.86); --panel-border: rgba(140,160,210,0.16);
+    --ink: #e7ecf6; --ink-dim: #9aa6c0; --ink-faint: #626e8a;
+    --accent: #7f9bff; --accent-soft: rgba(127,155,255,0.16); --accent-line: rgba(127,155,255,0.55);
+    --track: rgba(140,150,180,0.16); --chip: rgba(140,150,180,0.09); --warn: #ffb95c;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: var(--font); color: var(--ink); background: #04050a; overflow: hidden; }
+  .sky { position: fixed; inset: 0; z-index: 0; background: radial-gradient(1200px 820px at 66% 44%, #0c1730 0%, #080d1e 44%, var(--bg) 100%); }
+  .sky .stars { position: absolute; inset: 0; transition: opacity .3s;
+    background-repeat: repeat; background-size: 240px 240px;
+    background-image:
+      radial-gradient(1.5px 1.5px at 14% 20%, rgba(255,255,255,.95), transparent 60%),
+      radial-gradient(1px 1px at 41% 66%, rgba(200,215,255,.8), transparent 60%),
+      radial-gradient(1.3px 1.3px at 72% 31%, rgba(255,240,220,.9), transparent 60%),
+      radial-gradient(1px 1px at 86% 74%, rgba(200,215,255,.7), transparent 60%),
+      radial-gradient(1.4px 1.4px at 27% 84%, rgba(255,255,255,.85), transparent 60%),
+      radial-gradient(1px 1px at 58% 10%, rgba(220,230,255,.7), transparent 60%); }
+  .sky .core { position: absolute; left: 64%; top: 46%; width: 46vmin; height: 46vmin; transform: translate(-50%,-50%);
+    border-radius: 50%; filter: blur(3px); transition: background .3s; }
+
+  .toolbar { position: fixed; z-index: 3; right: 16px; top: 14px; max-width: 330px; font-size: 12px; color: var(--ink-dim); line-height: 1.45; opacity: .8; }
+
+  .panel { position: fixed; z-index: 5; left: 16px; top: 16px; width: 300px; max-height: calc(100vh - 32px); overflow-y: auto;
+    background: var(--panel-bg); backdrop-filter: blur(14px); border: 1px solid var(--panel-border); border-radius: 14px;
+    padding: 11px; box-shadow: 0 18px 50px rgba(0,0,0,.5); scrollbar-width: thin; scrollbar-color: var(--track) transparent; }
+  .panel::-webkit-scrollbar { width: 7px; } .panel::-webkit-scrollbar-thumb { background: var(--track); border-radius: 4px; }
+
+  .p-head { display: flex; align-items: center; gap: 7px; }
+  .p-title { font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+  .p-notes { font-size: 11px; color: var(--ink-faint); margin-left: 1px; }
+  .p-head .spacer { flex: 1; }
+  .lang { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 999px; overflow: hidden; }
+  .lang button { border: 0; background: transparent; color: var(--ink-dim); font-size: 11px; padding: 3px 8px; cursor: pointer; font-family: var(--font); }
+  .lang button.on { background: var(--accent-soft); color: var(--ink); }
+  .ico { border: 1px solid var(--panel-border); background: var(--chip); color: var(--ink); width: 25px; height: 25px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+  .ico:hover { background: var(--accent-soft); }
+
+  .qrow { display: flex; gap: 7px; margin-top: 10px; }
+  .btn { flex: 1; font-family: var(--font); font-size: 12px; padding: 7px 8px; background: var(--chip); border: 1px solid var(--panel-border); color: var(--ink); border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  .btn:hover { background: var(--accent-soft); } .btn.ghost { background: transparent; }
+  .btn.primary { background: var(--accent-soft); border-color: var(--accent-line); color: #dfe6ff; }
+
+  .zone { margin-top: 14px; }
+  .zone-h { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  .zone-h::after { content: ""; flex: 1; height: 1px; background: rgba(140,150,180,0.14); }
+
+  .field { margin-top: 10px; } .field > .label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-dim); margin-bottom: 5px; }
+  .sub { font-size: 10.5px; color: var(--ink-faint); margin-top: 5px; line-height: 1.35; }
+
+  .seg { display: flex; background: var(--track); border-radius: 8px; padding: 2px; gap: 2px; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--ink-dim); font-family: var(--font); font-size: 11px; padding: 5px 4px; border-radius: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg button.on { background: rgba(127,155,255,0.30); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+  .seg button:not(.on):hover { color: var(--ink); }
+
+  .toggle { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 12px; }
+  .sw { position: relative; width: 38px; height: 22px; border-radius: 999px; background: var(--track); cursor: pointer; transition: background .18s; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #cfd6e8; transition: transform .18s; }
+  .sw.on { background: var(--accent-line); } .sw.on::after { transform: translateX(16px); background: #fff; }
+
+  .sld { margin-top: 11px; } .sld .top { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-dim); margin-bottom: 6px; }
+  .sld .top .v { color: var(--ink); font-variant-numeric: tabular-nums; } .sld .top .v.preview { color: var(--accent); }
+  .sld .track { position: relative; height: 20px; cursor: pointer; }
+  .sld .rail { position: absolute; top: 9px; left: 0; right: 0; height: 3px; background: var(--track); border-radius: 2px; }
+  .sld .fill { position: absolute; top: 9px; height: 3px; background: var(--accent); border-radius: 2px; }
+  .sld .notch { position: absolute; top: 5px; left: 50%; width: 2px; height: 11px; background: var(--ink-faint); transform: translateX(-1px); border-radius: 1px; }
+  .sld .thumb { position: absolute; top: 4px; width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%; background: #fff; box-shadow: 0 1px 5px rgba(0,0,0,.5); }
+  .sld.previewing .thumb, .sld.previewing .fill { transition: left .14s ease, width .14s ease; }
+
+  .plabel { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; color: var(--ink-dim); margin: 12px 0 5px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .card { position: relative; text-align: left; background: var(--chip); border: 1px solid var(--panel-border); border-radius: 10px; padding: 7px 9px; cursor: pointer; font-family: var(--font); color: var(--ink); transition: border-color .12s, background .12s; }
+  .card:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+  .card.on { border-color: var(--accent-line); background: rgba(127,155,255,0.20); box-shadow: inset 0 0 0 1px var(--accent-line); }
+  .card .n { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .card .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .card .s { font-size: 10px; color: var(--ink-faint); margin-top: 3px; line-height: 1.25; }
+  .card.on .s { color: #b9c6ea; }
+  .card .mine-ops { position: absolute; top: 5px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .card:hover .mine-ops { opacity: 1; }
+  .card .mine-ops button { width: 17px; height: 17px; border: 0; border-radius: 4px; background: rgba(0,0,0,.35); color: var(--ink-dim); font-size: 10px; cursor: pointer; line-height: 1; padding: 0; }
+  .card .mine-ops button:hover { color: #fff; background: rgba(127,155,255,.4); }
+  .card .picon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; }
+  .card.confirming { border-color: rgba(255,120,120,.6); background: rgba(255,120,120,.10); }
+  .card.confirming .mine-ops { opacity: 1; }
+  .card .mine-ops .cd-label { font-size: 9px; color: #ffb0b0; align-self: center; padding-right: 2px; }
+  .card .mine-ops button.ok { color: #7fd6a0; } .card .mine-ops button.no { color: #ff9a9a; }
+  .card .mine-ops button.ok:hover { background: rgba(120,220,150,.35); color: #dfffe9; }
+  .card .mine-ops button.no:hover { background: rgba(255,120,120,.35); color: #ffe1e1; }
+  .preview-tip { text-align: center; font-size: 10px; color: var(--accent); margin-top: 7px; min-height: 13px; }
+
+  details.sec { margin-top: 9px; border-top: 1px solid rgba(140,150,180,0.12); padding-top: 6px; }
+  details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--ink-dim); user-select: none; }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary .caret { font-size: 9px; transition: transform .15s; color: var(--ink-faint); }
+  details.sec[open] > summary .caret { transform: rotate(90deg); }
+  .sec-badge { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: var(--track); color: var(--ink-faint); }
+  .sec-badge.dirty { background: rgba(255,185,92,0.16); color: var(--warn); }
+  .sec-badge.preview { background: var(--accent-soft); color: var(--accent); }
+  .sec-restore { margin-left: 4px; border: 0; background: transparent; color: var(--warn); font-size: 10px; cursor: pointer; font-family: var(--font); }
+  .sec-restore:hover { text-decoration: underline; }
+  .sec-head-spacer { flex: 1; } .sec-body { padding: 2px 0 4px; }
+  select.dd { width: 100%; margin-top: 11px; font-family: var(--font); font-size: 12px; padding: 6px 8px; background: var(--chip); border: 1px solid var(--panel-border); color: var(--ink); border-radius: 8px; }
+
+  .nav-block { margin-top: 12px; padding: 9px 10px; border: 1px solid var(--panel-border); border-radius: 10px; background: rgba(140,150,180,0.05); }
+  .nav-block .nh { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+  .footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid rgba(140,150,180,0.14); }
+  .dbg { font-size: 10.5px; color: var(--ink-faint); margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .pop { position: absolute; z-index: 6; right: 11px; top: 42px; width: 250px; background: rgba(20,24,38,0.98); border: 1px solid var(--accent-line); border-radius: 10px; padding: 11px; box-shadow: 0 14px 40px rgba(0,0,0,.6); }
+  .pop h4 { margin: 0 0 8px; font-size: 12px; } .help-lines { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--ink-dim); line-height: 1.4; }
+
+  /* mock node preview card (where link-depth now lives) */
+  .ncard { position: fixed; z-index: 4; right: 22px; bottom: 22px; width: 262px; background: rgba(14,17,27,0.92); backdrop-filter: blur(12px); border: 1px solid var(--panel-border); border-radius: 12px; padding: 12px 13px; box-shadow: 0 16px 44px rgba(0,0,0,.55); }
+  .ncard .nt { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .ncard .nt .cdot { width: 9px; height: 9px; border-radius: 50%; background: #6fb3d8; flex: none; }
+  .ncard .nm { font-size: 10.5px; color: var(--ink-faint); margin-top: 5px; }
+  .ncard .ns { font-size: 11px; color: var(--ink-dim); margin-top: 7px; line-height: 1.4; }
+  .ncard .ndepth { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 10.5px; color: var(--ink-faint); }
+  .ncard .ndepth .mini { display: inline-flex; border: 1px solid var(--panel-border); border-radius: 6px; overflow: hidden; }
+  .ncard .ndepth .mini button { border: 0; background: transparent; color: var(--ink-dim); font-size: 10.5px; padding: 2px 8px; cursor: pointer; font-family: var(--font); }
+  .ncard .ndepth .mini button.on { background: var(--accent-soft); color: var(--ink); }
+  .ncard .ndepth .hint { color: var(--ink-faint); opacity: .8; }
+  .ncard .nact { display: flex; gap: 6px; margin-top: 11px; }
+  .ncard .nact button { flex: 1; font-family: var(--font); font-size: 11px; padding: 5px; border-radius: 7px; border: 1px solid var(--panel-border); background: var(--chip); color: var(--ink); cursor: pointer; }
+  .ncard .nact button:hover { background: var(--accent-soft); }
+  .is-hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="sky"><div class="stars" id="stars"></div><div class="core" id="core"></div></div>
+  <div class="toolbar" id="ctxNote"></div>
+  <div id="app"></div>
+  <div id="cardHost"></div>
+
+<script>
+const DICT = {
+  en: {
+    title:"Galaxy View", notes:"3,225 notes", search:"Search", recenter:"Recenter", help:"Controls", helpTitle:"How to navigate",
+    g1:"Left-drag = orbit · scroll = zoom", g2:"Right-drag / ⌘-drag = pan", g3:"WASD = fly · Shift = boost",
+    g4:"Click a note = select & fly · double-click = open · Esc = deselect", g5:"F = fly to selection · R = overview",
+    zLook:"Appearance", zMove:"Navigate & motion",
+    presets:"Presets", myPresets:"My presets", previewTip:"Hover a preset to preview · click to apply",
+    secLook:"Appearance & color", secPhysics:"Physics", secBloom:"Bloom",
+    setBy:"set by {n}", customized:"customized", previewing:"preview: {n}", restore:"↺ restore",
+    nodeSize:"Node size", linkOpacity:"Link opacity", twinkle:"Twinkle",
+    sizeBy:"Size by", sizeDegree:"Links", sizeFile:"File", sizeUniform:"Even",
+    theme:"Color theme", starfield:"Starfield background",
+    repel:"Repulsion", linkDist:"Link distance", linkStr:"Link strength", center:"Center pull", flatten:"Flatten", core:"Core gravity", spiral:"Spiral arms",
+    bStrength:"Strength", bSpread:"Spread", bThresh:"Threshold",
+    autoOrbit:"Auto-orbit", autoOrbitSub:"Idle camera drifts around the graph", speed:"Speed",
+    tour:"Guided tour", tourSub:"A narrated fly-through of your notes", play:"Play", stop:"Stop", tMode:"Mode",
+    tRediscover:"Rediscover", tFlyby:"Flyby", tGrand:"Grand tour", tGuided:"Guided", replay:"↺ Replay intro animation",
+    resetAll:"Reset all", savePreset:"Save as preset", adv:"Advanced",
+    unresolved:"Show unresolved links", orphans:"Show orphan notes",
+    quality:"Quality", qAuto:"Auto", qHigh:"High", qLow:"Low", qMobile:"Mobile",
+    qualitySub:"Auto measures your device and keeps the highest quality it can hold at a smooth frame rate — stepping up or down in real time.",
+    fps:"60 fps · high tier · 19 draw calls",
+    delTip:"Delete", upTip:"Move up", downTip:"Move down", mineSub:"Your saved params", confirmDel:"Delete?", okTip:"Confirm delete", cancelTip:"Cancel",
+    cardTitle:"Deep learning notes", cardMeta:"AI/notes · ↩ 12 backlinks · → 8 outgoing · 2026-06-30",
+    cardSnip:"Backpropagation distributes the loss gradient layer by layer…",
+    cardLinks:"Related", cardD1:"1st", cardD2:"2nd", cardHint:"lit up on select", cardOpen:"Open", cardFocus:"Focus",
+    note:"Panel prototype (v3). Presets are now one flat list — each varies starfield on/off, color, size, physics & bloom (watch the background react on hover). Custom presets can be reordered/deleted. Link depth moved onto the node card (bottom-right, default 1st, quiet toggle to 2nd). Quality-auto note updated. Toggle 中/EN top-right."
+  },
+  zh: {
+    title:"星系视图", notes:"3,225 笔记", search:"搜索", recenter:"回中心", help:"操作", helpTitle:"如何导航",
+    g1:"左键拖 = 环绕 · 滚轮 = 缩放", g2:"右键拖 / ⌘拖 = 平移", g3:"WASD = 平飞 · Shift = 加速",
+    g4:"点节点 = 选中飞入 · 双击 = 打开 · Esc = 取消", g5:"F = 飞向选中 · R = 回总览",
+    zLook:"外观", zMove:"导航与动效",
+    presets:"预设", myPresets:"我的预设", previewTip:"悬停预设即预览 · 点击才应用",
+    secLook:"外观与配色", secPhysics:"力学", secBloom:"辉光",
+    setBy:"由『{n}』设定", customized:"已自定义", previewing:"预览：{n}", restore:"↺ 还原",
+    nodeSize:"节点大小", linkOpacity:"链接透明度", twinkle:"星星眨眼",
+    sizeBy:"大小依据", sizeDegree:"链接数", sizeFile:"文档量", sizeUniform:"一致",
+    theme:"配色主题", starfield:"星空背景",
+    repel:"斥力", linkDist:"链接距离", linkStr:"链接强度", center:"向心力", flatten:"扁平度", core:"核心引力", spiral:"旋臂",
+    bStrength:"强度", bSpread:"扩散", bThresh:"阈值",
+    autoOrbit:"自动环绕", autoOrbitSub:"闲置时相机绕图缓慢漂移", speed:"速度",
+    tour:"导览", tourSub:"对你的笔记做一次叙事式飞行导览", play:"开始", stop:"停止", tMode:"模式",
+    tRediscover:"随机回顾", tFlyby:"小行星飞掠", tGrand:"枢纽大巡游", tGuided:"引导路径", replay:"↺ 重播开场动画",
+    resetAll:"全部重置", savePreset:"存为我的预设", adv:"高级",
+    unresolved:"显示未解析链接", orphans:"显示孤儿笔记",
+    quality:"画质", qAuto:"自动", qHigh:"高", qLow:"低", qMobile:"移动",
+    qualitySub:"自动=按设备实时调度：在流畅前提下尽量给最高画质，撑不住才降、有余量再升。",
+    fps:"60 fps · 高画质 · 19 draw calls",
+    delTip:"删除", upTip:"上移", downTip:"下移", mineSub:"你保存的参数", confirmDel:"删除？", okTip:"确认删除", cancelTip:"取消",
+    cardTitle:"深度学习笔记", cardMeta:"AI/笔记 · ↩ 12 反链 · → 8 出链 · 2026-06-30",
+    cardSnip:"反向传播把损失梯度逐层分配回每一层的权重……",
+    cardLinks:"关联", cardD1:"一度", cardD2:"二度", cardHint:"选中即点亮", cardOpen:"打开", cardFocus:"聚焦",
+    note:"面板原型（v3）。预设已合并为一条扁平列表——每个都在「有无星空背景 / 配色 / 大小 / 力学 / 辉光」上拉开差异（悬停时看背景实时响应）。自定义预设可排序/删除。关联深度已移到节点卡片（右下角，默认一度，不起眼地切二度）。画质自动策略说明已更新。右上角 中/EN 切换。"
+  }
+};
+const t = (k,v)=>{ let s=(DICT[S.lang][k]??k); if(v) for(const x in v) s=s.split("{"+x+"}").join(v[x]); return s; };
+
+const THEME_COLOR = { Hubble:"#5fb0cf", Aurora:"#38f0c0", Sunset:"#e8734f", TikTok:"#ff5a7a", Cyber:"#00f0ff", Matrix:"#33ff66" };
+const THEMES = Object.keys(THEME_COLOR);
+
+// hand-drawn mini icons per preset (simple, recognizable)
+const SVG = (inner) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+inner+'</svg>';
+const F = (inner) => '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" stroke="none">'+inner+'</svg>';
+const ICONS = {
+  galaxy: SVG('<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M12 12 C 17 9 20 13 17 17"/><path d="M12 12 C 7 15 4 11 7 7"/>'),
+  spiral: SVG('<circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><path d="M12 12 C 18.5 10 19 16.5 13 18.5"/><path d="M12 12 C 5.5 14 5 7.5 11 5.5"/>'),
+  orbits: SVG('<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="8" ry="4"/><ellipse cx="12" cy="12" rx="4.6" ry="2.3"/><circle cx="20" cy="12" r="1.1" fill="currentColor" stroke="none"/>'),
+  deepfield: F('<circle cx="6" cy="7" r="1"/><circle cx="17" cy="6" r="1.3"/><circle cx="11" cy="12" r="1"/><circle cx="19" cy="15" r="1"/><circle cx="7" cy="17" r="1.2"/><circle cx="14" cy="18" r="0.9"/>'),
+  nebula: SVG('<path d="M8 13 C 6 9 11 6 14 9 C 18 8 19 14 15 15 C 13 18 8 17 8 13 Z" fill="currentColor" fill-opacity="0.22"/>'),
+  minimal: SVG('<circle cx="6" cy="16" r="1.6" fill="currentColor" stroke="none"/><circle cx="13" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="18" cy="16" r="1.6" fill="currentColor" stroke="none"/><path d="M6 16 L13 8 L18 16"/>'),
+  fireworks: SVG('<path d="M12 12 L12 5"/><path d="M12 12 L17.5 8"/><path d="M12 12 L19 13.5"/><path d="M12 12 L15 18.5"/><path d="M12 12 L8 18"/><path d="M12 12 L5 13.5"/><path d="M12 12 L7 8"/><g fill="currentColor" stroke="none"><circle cx="12" cy="5" r="0.9"/><circle cx="17.5" cy="8" r="0.9"/><circle cx="19" cy="13.5" r="0.9"/><circle cx="15" cy="18.5" r="0.9"/><circle cx="8" cy="18" r="0.9"/><circle cx="5" cy="13.5" r="0.9"/><circle cx="7" cy="8" r="0.9"/></g>'),
+  supernova: SVG('<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M12 3 L12 6"/><path d="M12 18 L12 21"/><path d="M3 12 L6 12"/><path d="M18 12 L21 12"/><path d="M6 6 L8 8"/><path d="M16 16 L18 18"/><path d="M18 6 L16 8"/><path d="M8 16 L6 18"/>'),
+  custom: SVG('<path d="M12 4 L14.2 9.2 L20 9.7 L15.6 13.5 L17 19 L12 16 L7 19 L8.4 13.5 L4 9.7 L9.8 9.2 Z" fill="currentColor" fill-opacity="0.28"/>')
+};
+const iconFor = (p) => ICONS[p.id] || ICONS.custom;
+
+// 8 flat presets — each maximally differentiated (starfield, theme, size, physics, bloom)
+const PRESETS = [
+  { id:"galaxy",   name:{zh:"银河",en:"Galaxy"},     sub:{zh:"致密核·隐约旋臂·星海",en:"Dense core · faint arms · starry"},
+    starfield:true,  theme:"Hubble", bloom:{strength:0.35,radius:0.35,threshold:0.22}, physics:{repel:170,linkDist:55,linkStr:1.1,center:0.05,flatten:0.55,core:0.10,spiral:0.02}, look:{nodeSize:1,linkOpacity:0.14,twinkle:0.5} },
+  { id:"spiral",   name:{zh:"旋臂",en:"Spiral"},     sub:{zh:"社群卷成螺旋·极光",en:"Clusters coil · aurora"},
+    starfield:true,  theme:"Aurora", bloom:{strength:0.5,radius:0.45,threshold:0.2}, physics:{repel:170,linkDist:48,linkStr:1.15,center:0.05,flatten:0.62,core:0.14,spiral:0.07}, look:{nodeSize:1,linkOpacity:0.16,twinkle:0.6} },
+  { id:"orbits",   name:{zh:"轨道",en:"Orbits"},     sub:{zh:"枢纽为核·邻居成环·落日",en:"Hubs core · rings · sunset"},
+    starfield:true,  theme:"Sunset", bloom:{strength:0.42,radius:0.35,threshold:0.24}, physics:{repel:200,linkDist:95,linkStr:0.9,center:0.09,flatten:0.5,core:0.20,spiral:0}, look:{nodeSize:1.15,linkOpacity:0.11,twinkle:0.4} },
+  { id:"deepfield",name:{zh:"深空场",en:"Deep Field"},sub:{zh:"稀疏远景·繁星深黑",en:"Sparse · dense stars · deep black"},
+    starfield:true,  theme:"Hubble", bloom:{strength:0.28,radius:0.4,threshold:0.3}, physics:{repel:300,linkDist:110,linkStr:1.5,center:0.02,flatten:0,core:0,spiral:0}, look:{nodeSize:0.8,linkOpacity:0.08,twinkle:0.3} },
+  { id:"nebula",   name:{zh:"星云",en:"Nebula"},     sub:{zh:"弥散光云·无背景·霓虹",en:"Diffuse cloud · no stars · neon"},
+    starfield:false, theme:"TikTok", bloom:{strength:0.8,radius:0.5,threshold:0.14}, physics:{repel:150,linkDist:70,linkStr:0.9,center:0.03,flatten:0.15,core:0.03,spiral:0}, look:{nodeSize:1.05,linkOpacity:0.2,twinkle:0.5} },
+  { id:"minimal",  name:{zh:"极简",en:"Minimal"},    sub:{zh:"无辉光·无背景·克制",en:"No bloom · no stars · restrained"},
+    starfield:false, theme:"Matrix", bloom:{strength:0,radius:0.3,threshold:0.3}, physics:{repel:230,linkDist:80,linkStr:1,center:0.04,flatten:0,core:0,spiral:0}, look:{nodeSize:0.8,linkOpacity:0.07,twinkle:0} },
+  { id:"fireworks",name:{zh:"烟火",en:"Fireworks"},  sub:{zh:"高辉光迸发·赛博",en:"Bursting bloom · cyber"},
+    starfield:false, theme:"Cyber",  bloom:{strength:1.3,radius:0.6,threshold:0.08}, physics:{repel:150,linkDist:58,linkStr:1.3,center:0.05,flatten:0,core:0,spiral:0}, look:{nodeSize:1.2,linkOpacity:0.28,twinkle:1.3} },
+  { id:"supernova",name:{zh:"超新星",en:"Supernova"},sub:{zh:"向外爆发·重辉光·落日",en:"Explosive · heavy bloom · sunset"},
+    starfield:false, theme:"Sunset", bloom:{strength:1.1,radius:0.65,threshold:0.1}, physics:{repel:260,linkDist:62,linkStr:1.1,center:0.03,flatten:0,core:-0.08,spiral:0}, look:{nodeSize:1.3,linkOpacity:0.24,twinkle:1.5} }
+];
+const presetById = (id) => PRESETS.concat(S.myPresets).find(p => p.id === id);
+const pName = (p) => p.name[S.lang] ?? p.name.en;
+
+const SECTIONS = [
+  { id:"look", key:"secLook", group:"look", fields:[["nodeSize",0.3,2.5,0.05,1,v=>v.toFixed(2)+"×"],["linkOpacity",0,0.6,0.01,0.14,v=>v.toFixed(2)],["twinkle",0,2,0.1,0.5,v=>v<.05?"0":v.toFixed(1)]] },
+  { id:"physics", key:"secPhysics", group:"physics", fields:[["repel",20,400,5,170,v=>String(Math.round(v))],["linkDist",20,200,5,55,v=>String(Math.round(v))],["linkStr",0.1,2,0.1,1.1,v=>v.toFixed(1)+"×"],["center",0,0.2,0.005,0.05,v=>v.toFixed(3)],["flatten",0,0.8,0.02,0.55,v=>v.toFixed(2)],["core",-0.1,0.3,0.005,0.10,v=>v.toFixed(3)],["spiral",0,0.1,0.005,0.02,v=>v.toFixed(3)]] },
+  { id:"bloom", key:"secBloom", group:"bloom", fields:[["strength",0,2.5,0.05,0.35,v=>v.toFixed(2)],["radius",0,1.2,0.05,0.35,v=>v.toFixed(2)],["threshold",0,1,0.05,0.22,v=>v.toFixed(2)]] }
+];
+const fieldLabelKey = { nodeSize:"nodeSize", linkOpacity:"linkOpacity", twinkle:"twinkle", repel:"repel", linkDist:"linkDist", linkStr:"linkStr", center:"center", flatten:"flatten", core:"core", spiral:"spiral", strength:"bStrength", radius:"bSpread", threshold:"bThresh" };
+
+const g0 = PRESETS[0];
+const S = {
+  lang:"zh", minimized:false, helpOpen:false,
+  preset:"galaxy", dirty:{ look:false, physics:false, bloom:false },
+  look:{...g0.look}, physics:{...g0.physics}, bloom:{...g0.bloom},
+  starfield:g0.starfield, theme:g0.theme, sizeBy:"degree", quality:"auto",
+  cruise:true, unresolved:false, orphans:true,
+  tour:"rediscover", tourRunning:false, autoSpeed:1, tourSpeed:1,
+  cardDepth:1, myPresets:[], mineN:0, confirmDel:null, sections:{ look:true, physics:false, bloom:false }
+};
+
+let sliderReg = {}, secReg = {}, starfieldSw = null, themeDd = null;
+
+function el(tag,cls,text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
+function seg(opts,cur,onPick){ const w=el("div","seg"); opts.forEach(o=>{ const b=el("button",cur===o.v?"on":"",o.label); b.onclick=()=>onPick(o.v); w.appendChild(b); }); return w; }
+function toggle(label,on,onFlip){ const w=el("div","toggle"); w.appendChild(el("span","",label)); const sw=el("div","sw"+(on?" on":"")); sw.onclick=()=>onFlip(!on); w.appendChild(sw); return {w,sw}; }
+function field(label,control){ const f=el("div","field"); const l=el("div","label"); l.appendChild(el("span","",label)); f.appendChild(l); f.appendChild(control); return f; }
+
+function applyBackdrop(starfield, theme){ document.getElementById("stars").style.opacity = starfield?"0.85":"0"; const c=THEME_COLOR[theme]||"#6fb3d8"; document.getElementById("core").style.background = "radial-gradient(closest-side, "+hexA(c,0.5)+", "+hexA(c,0.12)+" 42%, transparent 72%)"; }
+function hexA(hex,a){ const n=parseInt(hex.slice(1),16); return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"; }
+
+function slider(group,field,min,max,step,def,fmt){
+  const wrap=el("div","sld"); const top=el("div","top"); top.appendChild(el("span","",t(fieldLabelKey[field]||field))); const vEl=el("span","v"); top.appendChild(vEl); wrap.appendChild(top);
+  const track=el("div","track"),rail=el("div","rail"),fill=el("div","fill"),notch=el("div","notch"),thumb=el("div","thumb"); track.append(rail,fill,notch,thumb); wrap.appendChild(track);
+  const v2p=(v)=>v<=def?(def===min?0:0.5*(v-min)/(def-min)):(max===def?1:0.5+0.5*(v-def)/(max-def));
+  const p2v=(p)=>{const raw=p<=0.5?min+(def-min)*(p/0.5):def+(max-def)*((p-0.5)/0.5); return Math.min(Math.max(Math.round(raw/step)*step,min),max);};
+  const paint=(v,pv)=>{const p=v2p(v); thumb.style.left=(p*100)+"%"; fill.style.left=(Math.min(p,.5)*100)+"%"; fill.style.width=(Math.abs(p-.5)*100)+"%"; vEl.textContent=fmt(v); vEl.classList.toggle("preview",!!pv);};
+  paint(S[group][field],false);
+  sliderReg[group+"."+field]=(v,pv)=>{ wrap.classList.toggle("previewing",!!pv); paint(v,pv); };
+  const at=(e)=>{const r=track.getBoundingClientRect(); const p=Math.min(Math.max((e.clientX-r.left)/r.width,0),1); const nv=p2v(p); S[group][field]=nv; paint(nv,false); markDirty(group);};
+  track.onpointerdown=(e)=>{e.preventDefault();track.setPointerCapture(e.pointerId);at(e);const mv=(ev)=>at(ev);const up=(ev)=>{track.releasePointerCapture(ev.pointerId);track.removeEventListener("pointermove",mv);track.removeEventListener("pointerup",up);};track.addEventListener("pointermove",mv);track.addEventListener("pointerup",up);};
+  track.ondblclick=()=>{S[group][field]=def;paint(def,false);markDirty(group);};
+  return wrap;
+}
+function slider2(label,min,max,step,def,val,fmt,onInput){
+  const wrap=el("div","sld"); const top=el("div","top"); top.appendChild(el("span","",label)); const vEl=el("span","v",fmt(val)); top.appendChild(vEl); wrap.appendChild(top);
+  const track=el("div","track"),rail=el("div","rail"),fill=el("div","fill"),notch=el("div","notch"),thumb=el("div","thumb"); track.append(rail,fill,notch,thumb); wrap.appendChild(track);
+  const v2p=(v)=>v<=def?(def===min?0:0.5*(v-min)/(def-min)):(max===def?1:0.5+0.5*(v-def)/(max-def));
+  const p2v=(p)=>{const raw=p<=0.5?min+(def-min)*(p/0.5):def+(max-def)*((p-0.5)/0.5); return Math.min(Math.max(Math.round(raw/step)*step,min),max);};
+  const paint=(v)=>{const p=v2p(v); thumb.style.left=(p*100)+"%"; fill.style.left=(Math.min(p,.5)*100)+"%"; fill.style.width=(Math.abs(p-.5)*100)+"%"; vEl.textContent=fmt(v);}; paint(val); let cur=val;
+  const at=(e)=>{const r=track.getBoundingClientRect(); const p=Math.min(Math.max((e.clientX-r.left)/r.width,0),1); cur=p2v(p); paint(cur); onInput(cur);};
+  track.onpointerdown=(e)=>{e.preventDefault();track.setPointerCapture(e.pointerId);at(e);const mv=(ev)=>at(ev);const up=(ev)=>{track.releasePointerCapture(ev.pointerId);track.removeEventListener("pointermove",mv);track.removeEventListener("pointerup",up);};track.addEventListener("pointermove",mv);track.addEventListener("pointerup",up);};
+  track.ondblclick=()=>{cur=def;paint(cur);onInput(cur);}; return wrap;
+}
+
+function badgeText(id){ const p=presetById(S.preset); if(!p) return {text:"",cls:""}; return S.dirty[id]?{text:t("customized"),cls:"dirty"}:{text:t("setBy",{n:pName(p)}),cls:""}; }
+function markDirty(id){ if(S.dirty[id])return; S.dirty[id]=true; const r=secReg[id]; if(r){ r.badge.textContent=t("customized"); r.badge.className="sec-badge dirty"; r.restore.style.display=""; } }
+function restoreSection(id){ const p=presetById(S.preset); if(!p)return; const grp=SECTIONS.find(s=>s.id===id).group; S[grp]={...p[grp]}; if(id==="look"){ S.starfield=p.starfield; S.theme=p.theme; } S.dirty[id]=false; render(); }
+function applyPreset(id){ const p=presetById(id); if(!p)return; S.preset=id; S.look={...p.look}; S.physics={...p.physics}; S.bloom={...p.bloom}; S.starfield=p.starfield; S.theme=p.theme; S.dirty={look:false,physics:false,bloom:false}; applyBackdrop(p.starfield,p.theme); render(); }
+
+function previewPreset(p){
+  SECTIONS.forEach(sec=>{ sec.fields.forEach(([f])=>{ const reg=sliderReg[sec.group+"."+f]; if(reg&&p[sec.group][f]!==undefined) reg(p[sec.group][f],true); }); const r=secReg[sec.id]; if(r){ r.badge.textContent=t("previewing",{n:pName(p)}); r.badge.className="sec-badge preview"; r.restore.style.display="none"; } });
+  if(starfieldSw) starfieldSw.className="sw"+(p.starfield?" on":""); if(themeDd) themeDd.value=p.theme;
+  applyBackdrop(p.starfield,p.theme);
+}
+function clearPreview(){
+  SECTIONS.forEach(sec=>{ sec.fields.forEach(([f])=>{ const reg=sliderReg[sec.group+"."+f]; if(reg) reg(S[sec.group][f],false); }); const r=secReg[sec.id]; if(r){ const b=badgeText(sec.id); r.badge.textContent=b.text; r.badge.className="sec-badge"+(b.cls?" "+b.cls:""); r.restore.style.display=S.dirty[sec.id]?"":"none"; } });
+  if(starfieldSw) starfieldSw.className="sw"+(S.starfield?" on":""); if(themeDd) themeDd.value=S.theme;
+  applyBackdrop(S.starfield,S.theme);
+}
+
+function presetCard(p,isMine,idx){
+  const confirming = isMine && S.confirmDel===p.id;
+  const c=el("button","card"+(S.preset===p.id?" on":"")+(confirming?" confirming":""));
+  const n=el("div","n"); const icon=el("span","picon"); icon.style.color=THEME_COLOR[p.theme]||"#9aa6c0"; icon.innerHTML=iconFor(p); n.append(icon, document.createTextNode(pName(p)));
+  c.append(n, el("div","s",p.sub[S.lang]??p.sub.en));
+  if(isMine){
+    const ops=el("div","mine-ops");
+    if(confirming){
+      const label=el("span","cd-label",t("confirmDel"));
+      const ok=el("button","ok","✓"); ok.title=t("okTip"); ok.onclick=(e)=>{e.stopPropagation(); deleteMine(idx);};
+      const no=el("button","no","✕"); no.title=t("cancelTip"); no.onclick=(e)=>{e.stopPropagation(); S.confirmDel=null; render();};
+      ops.append(label,ok,no);
+    } else {
+      const up=el("button","","↑"); up.title=t("upTip"); up.onclick=(e)=>{e.stopPropagation(); moveMine(idx,-1);};
+      const dn=el("button","","↓"); dn.title=t("downTip"); dn.onclick=(e)=>{e.stopPropagation(); moveMine(idx,1);};
+      const del=el("button","","×"); del.title=t("delTip"); del.onclick=(e)=>{e.stopPropagation(); S.confirmDel=p.id; render();};
+      ops.append(up,dn,del);
+    }
+    c.appendChild(ops);
+  }
+  c.onmouseenter=()=>previewPreset(p); c.onmouseleave=()=>clearPreview(); c.onclick=()=>applyPreset(p.id);
+  return c;
+}
+function moveMine(i,d){ const j=i+d; if(j<0||j>=S.myPresets.length) return; const a=S.myPresets; [a[i],a[j]]=[a[j],a[i]]; render(); }
+function deleteMine(i){ const del=S.myPresets[i]; S.myPresets.splice(i,1); if(S.preset===del.id){ S.preset=""; } S.confirmDel=null; render(); }
+function saveAsPreset(){ S.mineN++; const id="mine-"+S.mineN; S.myPresets.push({ id, name:{zh:"我的 "+S.mineN,en:"Mine "+S.mineN}, sub:{zh:t("mineSub"),en:"Your saved params"}, starfield:S.starfield, theme:S.theme, look:{...S.look}, physics:{...S.physics}, bloom:{...S.bloom} }); S.preset=id; S.dirty={look:false,physics:false,bloom:false}; render(); }
+
+function section(sec){
+  const d=el("details","sec"); if(S.sections[sec.id]) d.setAttribute("open","");
+  const sm=document.createElement("summary"); sm.append(el("span","caret","▸"), el("span","",t(sec.key)), el("span","sec-head-spacer"));
+  const b=badgeText(sec.id); const badge=el("span","sec-badge"+(b.cls?" "+b.cls:""),b.text);
+  const restore=el("button","sec-restore",t("restore")); restore.style.display=S.dirty[sec.id]?"":"none"; restore.onclick=(e)=>{e.preventDefault();e.stopPropagation();restoreSection(sec.id);};
+  sm.append(badge,restore); d.appendChild(sm); secReg[sec.id]={badge,restore};
+  d.addEventListener("toggle",()=>{S.sections[sec.id]=d.open;});
+  const body=el("div","sec-body"); sec.fields.forEach(([f,mn,mx,st,df,fmt])=> body.appendChild(slider(sec.group,f,mn,mx,st,df,fmt)));
+  if(sec.id==="look"){
+    body.appendChild(field(t("sizeBy"), seg([{v:"degree",label:t("sizeDegree")},{v:"fileSize",label:t("sizeFile")},{v:"uniform",label:t("sizeUniform")}], S.sizeBy, v=>{S.sizeBy=v;render();})));
+    themeDd=el("select","dd"); THEMES.forEach(n=>themeDd.appendChild(el("option","",n))); themeDd.value=S.theme; themeDd.onchange=()=>{S.theme=themeDd.value; markDirty("look"); applyBackdrop(S.starfield,S.theme);}; body.appendChild(field(t("theme"),themeDd));
+    const st=toggle(t("starfield"),S.starfield,v=>{S.starfield=v; markDirty("look"); applyBackdrop(S.starfield,S.theme); st.sw.className="sw"+(v?" on":"");}); starfieldSw=st.sw; body.appendChild(st.w);
+  }
+  d.appendChild(body); return d;
+}
+
+function renderNodeCard(){
+  const host=document.getElementById("cardHost"); host.innerHTML="";
+  const c=el("div","ncard");
+  const tl=el("div","nt"); const cd=el("span","cdot"); tl.append(cd, document.createTextNode(t("cardTitle"))); c.append(tl);
+  c.append(el("div","nm",t("cardMeta")), el("div","ns",t("cardSnip")));
+  const dep=el("div","ndepth"); dep.appendChild(el("span","",t("cardLinks")));
+  const mini=el("div","mini"); [["1",t("cardD1")],["2",t("cardD2")]].forEach(([v,lb])=>{ const b=el("button",String(S.cardDepth)===v?"on":"",lb); b.onclick=()=>{S.cardDepth=+v; renderNodeCard();}; mini.appendChild(b); });
+  dep.append(mini, el("span","hint","· "+t("cardHint"))); c.append(dep);
+  const act=el("div","nact"); act.append(el("button","",t("cardOpen")), el("button","",t("cardFocus"))); c.append(act);
+  host.appendChild(c);
+}
+
+function render(){
+  sliderReg={}; secReg={}; starfieldSw=null; themeDd=null;
+  document.documentElement.lang=S.lang; document.getElementById("ctxNote").textContent=t("note");
+  const app=document.getElementById("app"); app.innerHTML=""; const panel=el("div","panel");
+
+  const head=el("div","p-head"); head.append(el("span","p-title",t("title")), el("span","p-notes",t("notes")), el("span","spacer"));
+  const lang=el("div","lang"); ["zh","en"].forEach(l=>{const b=el("button",S.lang===l?"on":"",l==="zh"?"中":"EN"); b.onclick=()=>{S.lang=l;render();renderNodeCard();}; lang.appendChild(b);}); head.append(lang);
+  const helpBtn=el("button","ico","?"); helpBtn.onclick=()=>{S.helpOpen=!S.helpOpen;render();}; head.append(helpBtn);
+  const minBtn=el("button","ico",S.minimized?"▢":"—"); minBtn.onclick=()=>{S.minimized=!S.minimized;render();}; head.append(minBtn);
+  panel.appendChild(head);
+
+  if(S.helpOpen){ const pop=el("div","pop"); pop.appendChild(el("h4","",t("helpTitle"))); const hl=el("div","help-lines"); ["g1","g2","g3","g4","g5"].forEach(k=>hl.appendChild(el("div","",t(k)))); pop.appendChild(hl); panel.appendChild(pop); }
+
+  if(!S.minimized){
+    const body=el("div"); panel.appendChild(body);
+    const q=el("div","qrow"); const s=el("div","btn"); s.append(el("span","","⌕"),el("span","",t("search"))); const r=el("div","btn"); r.append(el("span","","⊙"),el("span","",t("recenter"))); q.append(s,r); body.appendChild(q);
+
+    // ZONE — appearance (flat presets → detail sections)
+    const z=el("div","zone"); z.appendChild(el("div","zone-h",t("zLook")));
+    z.appendChild(el("div","plabel",t("presets")));
+    const grid=el("div","cards"); PRESETS.forEach(p=>grid.appendChild(presetCard(p,false))); z.appendChild(grid);
+    if(S.myPresets.length){ const ml=el("div","plabel"); ml.append(el("span","",t("myPresets"))); z.appendChild(ml); const mg=el("div","cards"); S.myPresets.forEach((p,i)=>mg.appendChild(presetCard(p,true,i))); z.appendChild(mg); }
+    z.appendChild(el("div","preview-tip",t("previewTip")));
+    SECTIONS.forEach(sec=>z.appendChild(section(sec)));
+    body.appendChild(z);
+
+    // ZONE — navigate & motion
+    const z2=el("div","zone"); z2.appendChild(el("div","zone-h",t("zMove")));
+    const ao=el("div","nav-block"); const aoh=el("div","nh"); aoh.appendChild(el("span","",t("autoOrbit")));
+    const aot=toggle("",S.cruise,v=>{S.cruise=v;render();}); aoh.appendChild(aot.sw); ao.append(aoh, el("div","sub",t("autoOrbitSub"))); ao.appendChild(slider2(t("speed"),0.2,3,0.1,1,S.autoSpeed,v=>v.toFixed(1)+"×",v=>S.autoSpeed=v)); z2.appendChild(ao);
+    const tb=el("div","nav-block"); const tbh=el("div","nh"); tbh.appendChild(el("span","",t("tour")));
+    const play=el("button","btn primary"); const setPlay=()=>{play.innerHTML="";play.append(el("span","",S.tourRunning?"■":"▶"),el("span","",S.tourRunning?t("stop"):t("play")));}; setPlay(); play.style.flex="0 0 auto"; play.style.padding="5px 12px"; play.onclick=()=>{S.tourRunning=!S.tourRunning;setPlay();}; tbh.appendChild(play);
+    tb.append(tbh, el("div","sub",t("tourSub"))); tb.appendChild(field(t("tMode"), seg([{v:"rediscover",label:t("tRediscover")},{v:"flyby",label:t("tFlyby")},{v:"grandtour",label:t("tGrand")},{v:"guided",label:t("tGuided")}], S.tour, v=>{S.tour=v;render();}))); tb.appendChild(slider2(t("speed"),0.2,3,0.1,1,S.tourSpeed,v=>v.toFixed(1)+"×",v=>S.tourSpeed=v)); z2.appendChild(tb);
+    const rp=el("button","btn ghost",t("replay")); rp.style.marginTop="12px"; z2.appendChild(rp); body.appendChild(z2);
+
+    // footer
+    const f=el("div","footer"); const fr=el("div","qrow"); const reset=el("div","btn ghost",t("resetAll")); reset.onclick=()=>applyPreset("galaxy"); const save=el("div","btn",t("savePreset")); save.onclick=saveAsPreset; fr.append(reset,save); f.appendChild(fr);
+    const adv=el("details","sec"); const asm=document.createElement("summary"); asm.append(el("span","caret","▸"),el("span","",t("adv"))); adv.appendChild(asm); const ab=el("div","sec-body");
+    ab.appendChild(field(t("quality"), seg([{v:"auto",label:t("qAuto")},{v:"high",label:t("qHigh")},{v:"low",label:t("qLow")},{v:"mobile",label:t("qMobile")}], S.quality, v=>{S.quality=v;render();})));
+    ab.appendChild(el("div","sub",t("qualitySub")));
+    ab.appendChild(toggle(t("unresolved"),S.unresolved,v=>{S.unresolved=v;render();}).w);
+    ab.appendChild(toggle(t("orphans"),S.orphans,v=>{S.orphans=v;render();}).w);
+    ab.appendChild(el("div","dbg",t("fps"))); adv.appendChild(ab); f.appendChild(adv); body.appendChild(f);
+  }
+  app.appendChild(panel);
+}
+
+applyBackdrop(S.starfield,S.theme); render(); renderNodeCard();
+</script>
+</body>
+</html>

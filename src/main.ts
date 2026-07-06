@@ -2,6 +2,8 @@ import { Notice, Plugin } from 'obsidian';
 import { VIEW_TYPE_GALAXY } from './constants';
 import type { GalaxySettings } from './settings';
 import { DEFAULT_SETTINGS, mergeSettings } from './settings';
+import { resolveLang, setLang, t } from './i18n';
+import { GalaxySettingTab } from './settings/SettingsTab';
 import { GalaxyView } from './view/GalaxyView';
 import { heapUsed, sleep, writeBenchResult } from './bench/bench';
 
@@ -10,23 +12,33 @@ export default class GalaxyViewPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.settings = mergeSettings(await this.loadData());
+		setLang(resolveLang(this.settings.language)); // 命令名/ribbon 需要在注册前定语言
 		this.registerView(VIEW_TYPE_GALAXY, (leaf) => new GalaxyView(leaf, this));
+		this.addSettingTab(new GalaxySettingTab(this.app, this));
 
-		this.addRibbonIcon('orbit', '打开星系视图', () => {
+		this.addRibbonIcon('orbit', t('cmd.open'), () => {
 			void this.activateView();
 		});
 
 		this.addCommand({
 			id: 'open',
-			name: '打开星系视图',
+			name: t('cmd.open'),
 			callback: () => void this.activateView(),
 		});
 
 		this.addCommand({
 			id: 'search',
-			name: '搜索星系节点并飞行',
+			name: t('cmd.search'),
 			callback: () => {
 				void this.activateView().then((view) => view?.controller?.openSearch());
+			},
+		});
+
+		this.addCommand({
+			id: 'tour',
+			name: t('cmd.tour'),
+			callback: () => {
+				void this.activateView().then((view) => view?.controller?.toggleTour());
 			},
 		});
 
@@ -64,14 +76,14 @@ export default class GalaxyViewPlugin extends Plugin {
 	private async runBenchSuite(): Promise<void> {
 		const view = await this.activateView();
 		if (!view) {
-			new Notice('星系视图打开失败');
+			new Notice(t('notice.openFail'));
 			return;
 		}
 		// 等控制器完成异步启动
 		for (let i = 0; i < 100 && !view.controller; i++) await sleep(100);
 		const c = view.controller;
 		if (!c) {
-			new Notice('星系视图初始化超时');
+			new Notice(t('notice.initTimeout'));
 			return;
 		}
 		await c.runScenario('S1');

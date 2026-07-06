@@ -30,7 +30,6 @@ import type { VisualTokens } from './presets';
 import type { QualityTier } from '../quality/tiers';
 import { DEEP_SPACE } from './presets';
 
-const FOCUS_DIM = 0.12;
 const FOCUS_FADE_S = 0.28;
 
 /**
@@ -57,9 +56,12 @@ export class AggregateRenderer {
 	private selSegments: LineSegments | null = null;
 	private selGeometry: BufferGeometry | null = null;
 	private selMaterial: LineBasicMaterial | null = null;
-	private selLinkIdx: number[] = [];
+	private selLinkIdx: number[] = []; // 合并 tier1+tier2，updateSelPositions 用
+	private selTier1: number[] = [];
+	private selTier2: number[] = [];
 	private starfield: Group;
 	private twinkler: Twinkler;
+	private starfieldEnabled = true;
 	twinkleFreq = 0.5;
 	private motes: Points | null = null;
 	private reveal: { t0: number; durMs: number; maxR: number } | null = null;
@@ -184,7 +186,7 @@ export class AggregateRenderer {
 
 		this.recolor();
 		this.updatePositions();
-		this.setSelectedLinks(this.selLinkIdx); // 数据重建后恢复高亮层
+		this.buildSelLayer(); // 数据重建后恢复高亮层
 	}
 
 	private sizeMode: 'degree' | 'fileSize' | 'uniform' = 'degree';
@@ -349,20 +351,29 @@ export class AggregateRenderer {
 
 	// ---------- 聚焦与选中高亮 ----------
 
-	/** 聚焦模式：非邻居淡出（280ms 缓动，CPU 插值 3k floats 可忽略） */
-	setFocus(selected: number, neighbors: Set<number> | null): void {
+	/**
+	 * 聚焦模式：按每节点权重淡出/提亮。weightOf 返回 aDim 目标（1=全亮，0.12=淡出）；
+	 * 分级选中（选中/一度/二度/其余）就是不同的权重值，单 float aDim 足矣。
+	 */
+	setFocus(weightOf: ((i: number) => number) | null): void {
 		const n = this.data.nodes.length;
-		this.focusActive = neighbors !== null;
+		this.focusActive = weightOf !== null;
 		for (let i = 0; i < n; i++) {
-			this.dimTarget[i] = !neighbors || neighbors.has(i) || i === selected ? 1 : FOCUS_DIM;
+			this.dimTarget[i] = weightOf ? weightOf(i) : 1;
 		}
 		this.dimAnimating = true;
 		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
 	}
 
-	/** 选中节点自身的链接 → 独立高亮层（全饱和、盖在最上） */
-	setSelectedLinks(linkIndices: number[]): void {
-		this.selLinkIdx = linkIndices;
+	/** 选中链接高亮：tier1=一度（全饱和），tier2=二度（降亮度）；复用同一层，零新增 draw call */
+	setSelectedLinks(tier1: number[], tier2: number[]): void {
+		this.selTier1 = tier1;
+		this.selTier2 = tier2;
+		this.buildSelLayer();
+	}
+
+	private buildSelLayer(): void {
+		this.selLinkIdx = [...this.selTier1, ...this.selTier2];
 		if (this.selSegments) {
 			this.scene.remove(this.selSegments);
 			this.selGeometry?.dispose();
@@ -371,22 +382,27 @@ export class AggregateRenderer {
 			this.selGeometry = null;
 			this.selMaterial = null;
 		}
-		if (linkIndices.length === 0) return;
-		const m = linkIndices.length;
+		const m = this.selLinkIdx.length;
+		if (m === 0) return;
+		const t1 = this.selTier1.length;
 		const pos = new Float32Array(m * 6);
 		const col = new Float32Array(m * 6);
 		const hsl = { h: 0, s: 0, l: 0 };
 		for (let k = 0; k < m; k++) {
-			const l = this.data.links[linkIndices[k] ?? -1];
+			const l = this.data.links[this.selLinkIdx[k] ?? -1];
 			if (!l) continue;
 			const sNode = this.data.nodes[l.source];
-			const c = (sNode ? this.colorFn(sNode).clone() : new Color('#9aa4b2'));
+			const c = sNode ? this.colorFn(sNode).clone() : new Color('#9aa4b2');
 			c.getHSL(hsl);
-			c.setHSL(hsl.h, Math.min(hsl.s * 1.2, 1), this.tokens.lightMode ? 0.42 : 0.62);
+			const isT2 = k >= t1;
+			const light = this.tokens.lightMode ? (isT2 ? 0.34 : 0.42) : isT2 ? 0.46 : 0.62;
+			const sat = isT2 ? hsl.s * 0.9 : Math.min(hsl.s * 1.2, 1);
+			c.setHSL(hsl.h, sat, light);
+			const dim = isT2 ? 0.55 : 1; // 二度进一步压暗，读作外层壳
 			for (const v of [0, 1]) {
-				col[k * 6 + v * 3] = c.r;
-				col[k * 6 + v * 3 + 1] = c.g;
-				col[k * 6 + v * 3 + 2] = c.b;
+				col[k * 6 + v * 3] = c.r * dim;
+				col[k * 6 + v * 3 + 1] = c.g * dim;
+				col[k * 6 + v * 3 + 2] = c.b * dim;
 			}
 		}
 		this.selGeometry = new BufferGeometry();
@@ -435,7 +451,7 @@ export class AggregateRenderer {
 	applyTokens(tokens: VisualTokens, bloomStrengthFromSettings: number): void {
 		this.tokens = tokens;
 		this.scene.background = new Color(tokens.background);
-		this.starfield.visible = tokens.starfield;
+		this.starfield.visible = tokens.starfield && this.starfieldEnabled;
 		this.renderer.toneMapping = tokens.lightMode ? NoToneMapping : ACESFilmicToneMapping;
 		if (this.nodeMaterial) {
 			this.nodeMaterial.uniforms['uLightMode']!.value = tokens.lightMode ? 1 : 0;
@@ -445,7 +461,7 @@ export class AggregateRenderer {
 		if (this.motes) this.motes.visible = tokens.motes;
 		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
 		this.recolor();
-		this.setSelectedLinks(this.selLinkIdx);
+		this.buildSelLayer();
 	}
 
 	get currentTokens(): VisualTokens {
@@ -557,6 +573,12 @@ export class AggregateRenderer {
 		this.nodeScale = v;
 		const u = this.nodeMaterial?.uniforms['uSizeMul'];
 		if (u) u.value = v;
+	}
+
+	/** 星空背景开关（用户选项）；深空模式下由它最终决定星空可见性 */
+	setStarfieldEnabled(on: boolean): void {
+		this.starfieldEnabled = on;
+		this.starfield.visible = on && this.tokens.starfield;
 	}
 
 	resize(w: number, h: number): void {

@@ -17,7 +17,7 @@ export const CRUISE = {
 	elevationPeriodS: 90,
 	radiusBreath: 0.04,
 	radiusPeriodS: 60,
-	resumeDelayMs: 10_000,
+	resumeDelayMs: 6_000, // 真正拖动/缩放后静置多久恢复环绕（原 10s 偏久；配合「仅拖动才打断」体验更连贯）
 	rampUpMs: 2_000,
 };
 export const FLY_TO = {

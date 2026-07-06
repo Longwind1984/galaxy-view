@@ -6,7 +6,9 @@ import type { GalaxySettings } from '../settings';
 import { DEFAULT_SETTINGS, toLayoutParams } from '../settings';
 import { readGraphColorGroups } from '../settings/graphJsonImport';
 import type { ColorTheme } from '../render/colorThemes';
+import { COLOR_THEMES } from '../render/colorThemes';
 import { GraphStore } from '../data/GraphStore';
+import { neighborhood, shortestPath } from '../data/Adjacency';
 import { seedRadius } from '../data/seed';
 import type { LayoutEngine } from '../layout/LayoutEngine';
 import { MainThreadForceLayout } from '../layout/MainThreadForceLayout';
@@ -15,15 +17,21 @@ import { AggregateRenderer } from '../render/AggregateRenderer';
 import { makeNodeColorFn, fallbackColorFn } from '../render/palette';
 import { DAYLIGHT, DEEP_SPACE } from '../render/presets';
 import { CameraDirector } from '../interactions/CameraDirector';
+import { TourDirector } from '../tour/TourDirector';
 import { ControlPanel } from '../overlay/ControlPanel';
+import type { StylePreset } from '../render/stylePresets';
+import { STYLE_PRESETS } from '../render/stylePresets';
 import { OverlayManager } from '../overlay/OverlayManager';
 import { NodeSearchModal } from './SearchModal';
+import { resolveLang, setLang, t } from '../i18n';
 import { collectFrames, observeLongTasks, writeBenchResult, sleep } from '../bench/bench';
 import type { QualityTier } from '../quality/tiers';
 import { TIERS } from '../quality/tiers';
 
 const WARM_CACHE_MIN_COVERAGE = 0.8;
 const ESTABLISHING_MS = 3200;
+// 分级调暗（aDim 目标）：选中/一度=全亮，二度=外壳，其余=淡出。起点值，可眼调。
+const SELECT_DIM = { self: 1, d1: 1, d2: 0.45, rest: 0.12 };
 
 /**
  * 唯一的组装点：Store → Layout → Renderer → Director → Overlay → Panel。
@@ -36,6 +44,7 @@ export class GraphController {
 	private director: CameraDirector | null = null;
 	private overlay: OverlayManager | null = null;
 	private panel: ControlPanel | null = null;
+	private tour: TourDirector | null = null;
 
 	private rafId = 0;
 	private lastNow = 0;
@@ -54,8 +63,9 @@ export class GraphController {
 	private disposeFns: (() => void)[] = [];
 	private saveSoon: () => void;
 	private tier: QualityTier = TIERS.high;
-	private watchdogTripped = false;
+	private autoLow = false; // auto 档当前是否降到 low（可双向）
 	private lowFpsChecks = 0;
+	private highFpsChecks = 0;
 	private lastWatchdogAt = 0;
 	/** WebGL 上下文丢失时由视图重建（GalaxyView 注入） */
 	onContextLost: (() => void) | null = null;
@@ -97,12 +107,38 @@ export class GraphController {
 			onFlyToSelected: () => this.flyToSelected(),
 			onResetView: () => this.recenter(),
 		});
+		// 盘类默认取景仰角（银河重做默认俯视看盘）
+		const galaxyElev = STYLE_PRESETS.find((p) => p.id === 'galaxy')?.frameElevDeg;
+		if (galaxyElev !== undefined) this.director.setFramingElev(galaxyElev);
 
 		this.overlay = new OverlayManager(this.contentEl, this.app, renderer, {
 			openNote: (id) => void this.app.workspace.openLinkText(id, '', true),
 			focusNode: (i) => this.selectNode(i, true),
+			getSelectionDepth: () => this.settings.selectionDepth,
+			onSelectionDepth: (depth) => {
+				this.settings.selectionDepth = depth;
+				this.saveSoon();
+				if (this.selected >= 0) this.selectNode(this.selected, false);
+			},
 		});
 		this.overlay.setData(this.store.data, this.graphRadius);
+
+		this.tour = new TourDirector({
+			nodeCount: () => this.store.data.nodes.length,
+			degreeOf: (i) => this.store.data.nodes[i]?.degree ?? 0,
+			nodePosition: (i, out) => renderer.nodePosition(i, out),
+			graphRadius: () => this.graphRadius,
+			selectNode: (i, fly) => this.selectNode(i, fly),
+			clearSelection: () => this.clearSelection(),
+			recenter: () => this.recenter(),
+			flyPath: (wp, dur, opts) => this.director?.flyPath(wp, dur, opts),
+			beginIdleOrbit: () => this.director?.beginFocusOrbit(null),
+			onPath: () => this.director?.onPath ?? false,
+			onStateChange: (on) => {
+				this.panel?.setTourRunning(on);
+				if (this.director) this.director.tourActive = on; // 巡游期间强制环绕（即便巡航关）
+			},
+		});
 
 		this.applySettings();
 		this.applyPreset();
@@ -118,7 +154,10 @@ export class GraphController {
 
 		// 开场：暖启动走「拉出式」开场镜头；冷启动直接看星系成形（本身就是剧场）
 		if (warm) this.playEstablishing();
-		else this.director.setInitialFraming(this.graphRadius);
+		else {
+			const f = this.computeFraming();
+			this.director.setInitialFraming(f.center, f.radius);
+		}
 
 		this.lastNow = performance.now();
 		const loop = (now: number) => {
@@ -127,7 +166,18 @@ export class GraphController {
 			if (!this.paused) {
 				if (this.layout.step()) this.renderer?.updatePositions();
 				this.checkSettled();
-				if (!this.benchMode) this.director?.update(now, deltaS);
+				if (!this.benchMode) {
+					// tick + 相机 update 一起兜底：任一抛错都不能让异常冒泡冻结整个 rAF 循环
+					// （曾因 flyby 的 CatmullRom 采样在 director.update 里抛错，整个视图卡死 = 「点了没反应」）
+					try {
+						this.tour?.tick(now); // 巡游先编排本帧运动，再由 director 执行；随 paused 冻结
+						this.director?.update(now, deltaS);
+					} catch (err) {
+						this.tour?.abort();
+						this.director?.cancelMotion(); // 清掉可能损坏的路径/补间，避免下一帧继续抛
+						new Notice(t('notice.tourError', { msg: err instanceof Error ? err.message : String(err) }));
+					}
+				}
 				this.stepShot(now);
 				this.renderer?.render(deltaS);
 				const { clientWidth: w, clientHeight: h } = this.contentEl;
@@ -208,11 +258,13 @@ export class GraphController {
 				this.maskEl?.remove();
 				this.maskEl = null;
 			}, 650);
-			const inner = this.graphRadius * 0.5;
+			const f = this.computeFraming();
+			const inner = f.radius * 0.5;
 			const elev = (10 * Math.PI) / 180;
-			renderer.camera.position.set(inner * Math.cos(elev), inner * Math.sin(elev), inner * 0.2);
-			director.target.set(0, 0, 0);
-			director.resetView(this.graphRadius, () => director.beginFocusOrbit(null)); // 内部 → 总览 → 即时巡航
+			// 开场从质心内部起飞，拉出到全局取景
+			renderer.camera.position.set(f.center.x + inner * Math.cos(elev), f.center.y + inner * Math.sin(elev), f.center.z + inner * 0.2);
+			director.target.copy(f.center);
+			director.resetView(f.center, f.radius, () => director.beginFocusOrbit(null)); // 内部 → 总览 → 即时巡航
 			renderer.playReveal(2600); // 创世动画：节点从中心波次绽放（G2.5 反馈）
 			this.shot = { t0: performance.now(), durMs: ESTABLISHING_MS, fromBloom: this.settings.bloom.strength * 1.8 };
 		}, 450);
@@ -231,6 +283,7 @@ export class GraphController {
 
 	private onDataChanged(): void {
 		if (!this.renderer) return;
+		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
 		this.clearSelection();
 		this.renderer.setData(this.store.data, this.store.positions);
 		this.overlay?.setData(this.store.data, this.graphRadius);
@@ -249,7 +302,7 @@ export class GraphController {
 			this.layout.dispose();
 			this.layout = new MainThreadForceLayout();
 			this.layout.init(this.store.data, this.store.positions, params, initialAlpha);
-			new Notice('星系视图：后台线程不可用，已回退主线程布局');
+			new Notice(t('notice.workerFallback'));
 		}
 	}
 
@@ -260,37 +313,60 @@ export class GraphController {
 		if (Platform.isMobile) return TIERS.mobile;
 		const o = this.settings.qualityOverride;
 		if (o === 'high' || o === 'low' || o === 'mobile') return TIERS[o];
-		return this.watchdogTripped ? TIERS.low : TIERS.high;
+		return this.autoLow ? TIERS.low : TIERS.high;
 	}
 
 	applyTier(): void {
 		const prev = this.tier.id;
 		this.tier = this.pickTier();
+		if (this.tier.id === 'mobile') this.tour?.abort(); // 移动档禁用巡游（面板分区也隐藏）
 		this.renderer?.applyTier(this.tier, this.settings.bloom.strength);
 		this.overlay?.setBudgets(this.tier.hubLabels, this.tier.neighborLabels, this.tier.id === 'mobile');
 		this.contentEl.toggleClass('gx-mobile', this.tier.id === 'mobile');
 		const total = this.app.vault.getMarkdownFiles().length;
 		this.store.setCaps(this.tier.nodeCap, this.tier.linkCap); // 变化时触发重建
 		if (this.tier.nodeCap !== null && total > this.tier.nodeCap && prev !== this.tier.id) {
-			new Notice(`移动档：已显示链接最多的前 ${this.tier.nodeCap} 个节点（共 ${total}）`);
+			new Notice(t('notice.mobileCap', { n: this.tier.nodeCap, total }));
 		}
 	}
 
-	/** 沉降后 FPS 看门狗：连续 3 次 5s 采样 <30fps → 单向降到 low（会话内不回升） */
+	/**
+	 * 沉降后 FPS 看门狗（v0.3 双向 + 迟滞）：auto 档从 high 起步，优先给最高画质。
+	 * 在 high：连续 3×5s 采样 <30fps → 降到 low。在 low：连续 4×5s 采样 >55fps（有余量）→ 升回 high。
+	 * 不同阈值 + 不同次数 = 迟滞，防止在临界点反复抖动。
+	 */
 	private watchdog(now: number): void {
-		if (this.watchdogTripped || Platform.isMobile) return;
-		if (this.settings.qualityOverride !== 'auto' || !this.layout.isSettled() || this.benchRunning) return;
+		if (Platform.isMobile) return;
+		if (this.settings.qualityOverride !== 'auto' || !this.layout.isSettled() || this.benchRunning || this.paused) return;
 		if (now - this.lastWatchdogAt < 5000) return;
 		this.lastWatchdogAt = now;
-		if (this.hudFrames.length > 0 && this.hudFrames.length < 30 && !this.paused) {
-			this.lowFpsChecks++;
-			if (this.lowFpsChecks >= 3) {
-				this.watchdogTripped = true;
-				this.applyTier();
-				new Notice('星系视图：已自动切换到性能模式（可在面板「高级」改回）');
+		const fps = this.hudFrames.length;
+		if (fps <= 0) return;
+		if (!this.autoLow) {
+			if (fps < 30) {
+				this.lowFpsChecks++;
+				this.highFpsChecks = 0;
+				if (this.lowFpsChecks >= 3) {
+					this.autoLow = true;
+					this.lowFpsChecks = 0;
+					this.applyTier();
+					new Notice(t('notice.watchdog'));
+				}
+			} else {
+				this.lowFpsChecks = 0;
 			}
 		} else {
-			this.lowFpsChecks = 0;
+			if (fps > 55) {
+				this.highFpsChecks++;
+				this.lowFpsChecks = 0;
+				if (this.highFpsChecks >= 4) {
+					this.autoLow = false;
+					this.highFpsChecks = 0;
+					this.applyTier(); // 有余量 → 升回最高画质
+				}
+			} else {
+				this.highFpsChecks = 0;
+			}
 		}
 	}
 
@@ -302,6 +378,7 @@ export class GraphController {
 		this.renderer?.setNodeScale(s.look.nodeSize);
 		this.renderer?.setLinkOpacity(s.look.linkOpacity);
 		this.renderer?.setSizeMode(s.look.sizeBy);
+		this.renderer?.setStarfieldEnabled(s.showStarfield);
 		if (this.renderer) this.renderer.twinkleFreq = s.look.twinkle;
 		if (this.director) {
 			this.director.cruiseEnabled = s.cruise;
@@ -309,21 +386,140 @@ export class GraphController {
 		}
 	}
 
-	/** 风格预设 = 辉光+力学+外观 成套切换 */
-	applyStylePreset(p: { bloom: typeof DEFAULT_SETTINGS.bloom; physics: typeof DEFAULT_SETTINGS.physics; look: typeof DEFAULT_SETTINGS.look }): void {
+	/** 风格预设 = 辉光+力学+外观+星空+配色 成套切换（点击提交） */
+	applyStylePreset(p: StylePreset): void {
 		Object.assign(this.settings.bloom, p.bloom);
 		Object.assign(this.settings.physics, p.physics);
 		Object.assign(this.settings.look, p.look);
-		this.applySettings();
+		this.settings.showStarfield = p.starfield;
+		this.settings.activePreset = p.id;
+		this.applySettings(); // 含 setStarfieldEnabled
+		const theme = COLOR_THEMES.find((t) => t.id === p.theme);
+		if (theme) this.applyColorTheme(theme); // 套用并持久化配色
 		this.layout.updateParams(toLayoutParams(this.settings.physics));
 		this.wasSettled = false;
+		if (p.frameElevDeg !== undefined) this.director?.setFramingElev(p.frameElevDeg);
 		this.saveSoon();
+	}
+
+	/** 悬停预设：即时预览「视觉」参数（辉光/外观/星空/配色），不持久、不重热布局（物理只在点击时提交） */
+	previewStylePreset(p: StylePreset): void {
+		const r = this.renderer;
+		if (!r) return;
+		r.setBloomParams(p.bloom);
+		r.setNodeScale(p.look.nodeSize);
+		r.setLinkOpacity(p.look.linkOpacity);
+		r.twinkleFreq = p.look.twinkle;
+		r.setSizeMode(p.look.sizeBy);
+		r.setStarfieldEnabled(p.starfield);
+		const theme = COLOR_THEMES.find((t) => t.id === p.theme);
+		if (theme && this.settings.colorGroups.length > 0) {
+			const temp = this.settings.colorGroups.map((g, i) => ({ ...g, color: theme.colors[i % theme.colors.length] ?? g.color }));
+			r.setColorFn(makeNodeColorFn(temp));
+			r.recolor();
+		}
+	}
+
+	/** 结束预览：把「视觉」参数还原到已提交的设置 */
+	endStylePreview(): void {
+		const r = this.renderer;
+		if (!r) return;
+		const s = this.settings;
+		r.setBloomParams(s.bloom);
+		r.setNodeScale(s.look.nodeSize);
+		r.setLinkOpacity(s.look.linkOpacity);
+		r.twinkleFreq = s.look.twinkle;
+		r.setSizeMode(s.look.sizeBy);
+		r.setStarfieldEnabled(s.showStarfield);
+		r.setColorFn(s.colorGroups.length > 0 ? makeNodeColorFn(s.colorGroups) : fallbackColorFn);
+		r.recolor();
+	}
+
+	// ---------- 自定义预设 ----------
+
+	/** 存当前参数为一个用户预设 */
+	saveCurrentAsPreset(): void {
+		const n = this.settings.customPresets.length + 1;
+		const id = `custom-${Date.now().toString(36)}`;
+		const p: StylePreset = {
+			id,
+			name: t('mine.name', { n }),
+			nameEn: t('mine.name', { n }),
+			starfield: this.settings.showStarfield,
+			theme: this.settings.colorTheme,
+			bloom: { ...this.settings.bloom },
+			physics: { ...this.settings.physics },
+			look: { ...this.settings.look },
+		};
+		this.settings.customPresets.push(p);
+		this.settings.activePreset = id;
+		this.saveSoon();
+		this.panel?.refreshPresets();
+	}
+
+	moveCustomPreset(i: number, dir: -1 | 1): void {
+		const a = this.settings.customPresets;
+		const j = i + dir;
+		if (j < 0 || j >= a.length) return;
+		const tmp = a[i]!;
+		a[i] = a[j]!;
+		a[j] = tmp;
+		this.saveSoon();
+		this.panel?.refreshPresets();
+	}
+
+	deleteCustomPreset(i: number): void {
+		const removed = this.settings.customPresets.splice(i, 1)[0];
+		if (removed && this.settings.activePreset === removed.id) this.settings.activePreset = '';
+		this.saveSoon();
+		this.panel?.refreshPresets();
+	}
+
+	/** 分区级还原：把某分区参数复位到当前激活预设的值 */
+	restorePresetSection(group: 'bloom' | 'physics' | 'look'): void {
+		const p = [...STYLE_PRESETS, ...this.settings.customPresets].find((x) => x.id === this.settings.activePreset);
+		if (!p) return;
+		if (group === 'bloom') Object.assign(this.settings.bloom, p.bloom);
+		else if (group === 'physics') Object.assign(this.settings.physics, p.physics);
+		else {
+			Object.assign(this.settings.look, p.look);
+			this.settings.showStarfield = p.starfield;
+			const theme = COLOR_THEMES.find((t) => t.id === p.theme);
+			if (theme) this.applyColorTheme(theme);
+		}
+		this.applySettings();
+		if (group === 'physics') {
+			this.layout.updateParams(toLayoutParams(this.settings.physics));
+			this.wasSettled = false;
+		}
+		this.saveSoon();
+		this.panel?.refreshAll();
 	}
 
 	/** 回中心：清选中 + 平滑回总览 + 到达即绕全局中心巡航 */
 	recenter(): void {
 		this.clearSelection();
-		this.director?.resetView(this.graphRadius, () => this.director?.beginFocusOrbit(null));
+		const f = this.computeFraming();
+		this.director?.resetView(f.center, f.radius, () => this.director?.beginFocusOrbit(null));
+	}
+
+	/**
+	 * 节点云实际取景参数：质心 + 到质心距离的 95 分位半径（避开个别离群孤儿把镜头拉太远/带偏中心）。
+	 * 取景用它而非固定种子半径+原点 → 力学铺展多大、质心怎么漂都能框全且居中。无渲染器时回退。
+	 */
+	private computeFraming(): { center: Vector3; radius: number } {
+		const r = this.renderer;
+		const n = this.store.data.nodes.length;
+		if (!r || n === 0) return { center: new Vector3(), radius: this.graphRadius };
+		const tmp = new Vector3();
+		const center = new Vector3();
+		for (let i = 0; i < n; i++) center.add(r.nodePosition(i, tmp));
+		center.divideScalar(n);
+		const dists = new Float64Array(n);
+		for (let i = 0; i < n; i++) dists[i] = r.nodePosition(i, tmp).distanceTo(center);
+		dists.sort(); // 定型数组默认按数值升序
+		const idx = Math.min(n - 1, Math.floor(n * 0.95));
+		return { center, radius: Math.max(dists[idx] ?? this.graphRadius, this.graphRadius * 0.3) };
 	}
 
 	/** 应用配色主题：按序染给现有颜色组（无组则按节点数从顶层文件夹生成） */
@@ -350,7 +546,7 @@ export class GraphController {
 	/** 手动触发创世动画（坐标未沉降时给提示） */
 	playRevealManually(): void {
 		if (!this.layout.isSettled()) {
-			new Notice('星系还在成形中，沉降后再试');
+			new Notice(t('notice.notSettled'));
 			return;
 		}
 		this.renderer?.playReveal();
@@ -360,7 +556,7 @@ export class GraphController {
 	shuffleColors(): void {
 		const groups = this.settings.colorGroups;
 		if (groups.length < 2) {
-			new Notice('先导入二维图谱配色，才能洗牌');
+			new Notice(t('notice.needImport'));
 			return;
 		}
 		const colors = groups.map((g) => g.color);
@@ -393,14 +589,14 @@ export class GraphController {
 	private async importColors(notify: boolean): Promise<void> {
 		const groups = await readGraphColorGroups(this.app);
 		if (!groups || groups.length === 0) {
-			if (notify) new Notice('未找到自带图谱的颜色分组（graph.json）');
+			if (notify) new Notice(t('notice.noColorGroups'));
 			return;
 		}
 		this.settings.colorGroups = groups;
 		this.renderer?.setColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
 		this.saveSoon();
-		if (notify) new Notice(`已导入 ${groups.length} 组 2D 图谱配色`);
+		if (notify) new Notice(t('notice.imported', { n: groups.length }));
 	}
 
 	// ---------- 选中 / 聚焦 / 搜索 ----------
@@ -414,26 +610,24 @@ export class GraphController {
 		const director = this.director;
 		if (!renderer || !director) return;
 		this.selected = index;
-		const neighbors = new Set<number>();
-		const linkIdx: number[] = [];
-		this.store.data.links.forEach((l, li) => {
-			if (l.source === index || l.target === index) {
-				neighbors.add(l.source);
-				neighbors.add(l.target);
-				linkIdx.push(li);
-			}
+		// CSR 邻域 BFS 到设定深度（取代旧 O(全边) 扫描）
+		const { depthOf, linkTier1, linkTier2 } = neighborhood(this.store.adjacency, index, this.settings.selectionDepth);
+		// 一度环：标签与环绕方向只用一度（二度会冲淡质心）
+		const ring1: number[] = [];
+		for (const [i, dd] of depthOf) if (dd === 1) ring1.push(i);
+		renderer.setFocus((i) => {
+			const dd = depthOf.get(i);
+			return dd === undefined ? SELECT_DIM.rest : dd === 0 ? SELECT_DIM.self : dd === 1 ? SELECT_DIM.d1 : SELECT_DIM.d2;
 		});
-		renderer.setFocus(index, neighbors);
-		renderer.setSelectedLinks(linkIdx);
-		this.overlay?.setSelection(index, neighbors);
+		renderer.setSelectedLinks(linkTier1, linkTier2);
+		this.overlay?.setSelection(index, new Set(ring1));
 		if (fly) {
 			const pos = renderer.nodePosition(index, new Vector3());
-			// 邻居质心方向：到达后环绕优先扫过链接密集的一侧
+			// 一度质心方向：到达后环绕优先扫过链接密集的一侧
 			const density = new Vector3();
 			let count = 0;
 			const tmp = new Vector3();
-			for (const ni of neighbors) {
-				if (ni === index) continue;
+			for (const ni of ring1) {
 				density.add(renderer.nodePosition(ni, tmp));
 				count++;
 			}
@@ -442,11 +636,73 @@ export class GraphController {
 		}
 	}
 
+	/** 关联深度切换（1↔2）：翻字段、持久化、若有选中则立即重算高亮（不移镜头） */
+	cycleSelectionDepth(): void {
+		this.settings.selectionDepth = this.settings.selectionDepth === 1 ? 2 : 1;
+		this.saveSoon();
+		if (this.selected >= 0) this.selectNode(this.selected, false);
+	}
+
 	clearSelection(): void {
 		this.selected = -1;
-		this.renderer?.setFocus(-1, null);
-		this.renderer?.setSelectedLinks([]);
+		this.renderer?.setFocus(null);
+		this.renderer?.setSelectedLinks([], []);
 		this.overlay?.setSelection(-1, new Set());
+	}
+
+	// ---------- 巡游 / 自动驾驶（v0.3；方向 C = 漫游 + 连接两篇） ----------
+
+	/** 面板「漫游」按钮 / 命令：开始或停止氛围自动巡游 */
+	toggleTour(): void {
+		if (!this.tour) return;
+		try {
+			if (this.tour.isRunning) {
+				this.tour.stop();
+				return;
+			}
+			this.tour.startWander(this.settings.tour.speed);
+			// 无论成功与否都给即时反馈——避免「点了没反应」：能起则「已开始」，否则说明原因（如尚无节点）
+			new Notice(this.tour.isRunning ? t('notice.tourStart') : t('notice.tourEmpty'));
+		} catch (err) {
+			this.tour?.abort();
+			new Notice(t('notice.tourError', { msg: err instanceof Error ? err.message : String(err) }));
+		}
+	}
+
+	/** 连接两篇：选起点 → 选终点 → BFS 最短路 → 逐节点走 */
+	startConnectTwo(): void {
+		const nodes = this.store.data.nodes;
+		if (nodes.length < 2) {
+			new Notice(t('notice.tourEmpty'));
+			return;
+		}
+		new Notice(t('notice.guidedPick')); // 即时反馈：引导巡游需先选两点，弹选择器
+		new NodeSearchModal(
+			this.app,
+			nodes,
+			(startIdx) => {
+				new NodeSearchModal(
+					this.app,
+					nodes,
+					(endIdx) => {
+						const path = shortestPath(this.store.adjacency, startIdx, endIdx);
+						if (path.length < 2) {
+							new Notice(t('notice.noPath'));
+							return;
+						}
+						this.tour?.startGuided(path, this.settings.tour.speed);
+						if (this.tour?.isRunning) new Notice(t('notice.tourStart'));
+					},
+					t('search.pickEnd'),
+				).open();
+			},
+			t('search.pickStart'),
+		).open();
+	}
+
+	setTourSpeed(): void {
+		this.tour?.setSpeed(this.settings.tour.speed);
+		this.saveSoon();
 	}
 
 	private flyToSelected(): void {
@@ -493,15 +749,23 @@ export class GraphController {
 				e.preventDefault();
 			}
 		};
+		// 双击选中节点 → 打开笔记（公开用户最大 affordance）
+		const onDblClick = (e: MouseEvent) => {
+			if (e.button !== 0 || this.selected < 0) return;
+			const node = this.store.data.nodes[this.selected];
+			if (node && !node.unresolved) void this.app.workspace.openLinkText(node.id, '', true);
+		};
 		dom.addEventListener('pointerdown', onDown);
 		dom.addEventListener('pointerup', onUp);
 		dom.addEventListener('pointermove', onMove);
 		dom.addEventListener('keydown', onKey);
+		dom.addEventListener('dblclick', onDblClick);
 		this.disposeFns.push(() => {
 			dom.removeEventListener('pointerdown', onDown);
 			dom.removeEventListener('pointerup', onUp);
 			dom.removeEventListener('pointermove', onMove);
 			dom.removeEventListener('keydown', onKey);
+			dom.removeEventListener('dblclick', onDblClick);
 		});
 	}
 
@@ -547,10 +811,12 @@ export class GraphController {
 				if (this.director) this.director.cruiseEnabled = on;
 				this.saveSoon();
 			},
-			onPreset: () => {
-				this.applyPreset();
-				this.saveSoon();
-			},
+			onPresetHover: (p) => this.previewStylePreset(p),
+			onPresetHoverEnd: () => this.endStylePreview(),
+			onSavePreset: () => this.saveCurrentAsPreset(),
+			onMovePreset: (i, dir) => this.moveCustomPreset(i, dir),
+			onDeletePreset: (i) => this.deleteCustomPreset(i),
+			onRestoreSection: (g) => this.restorePresetSection(g),
 			onShowUnresolved: (on) => {
 				this.store.setIncludeUnresolved(on);
 				this.saveSoon();
@@ -564,43 +830,89 @@ export class GraphController {
 				this.store.setIncludeOrphans(on);
 				this.saveSoon();
 			},
+			onStarfield: (on) => {
+				this.renderer?.setStarfieldEnabled(on);
+				this.saveSoon();
+			},
 			onStylePreset: (p) => this.applyStylePreset(p),
 			onCruiseSpeed: () => {
 				if (this.director) this.director.cruiseSpeed = this.settings.cruiseSpeed;
 				this.saveSoon();
 			},
 			onQuality: () => {
-				this.watchdogTripped = false;
+				this.autoLow = false;
 				this.lowFpsChecks = 0;
+				this.highFpsChecks = 0;
 				this.applyTier();
 				this.saveSoon();
 			},
 			onSearch: () => this.openSearch(),
+			onTourToggle: () => this.toggleTour(),
+			onConnectTwo: () => this.startConnectTwo(),
+			onTourSpeed: () => this.setTourSpeed(),
+			onSectionToggle: (id, open) => {
+				this.settings.panelSections[id] = open;
+				this.saveSoon();
+			},
+			onLanguage: (lang) => this.setLanguage(lang),
+			onPanelWidth: (w) => {
+				this.settings.panelWidth = w;
+				this.saveSoon();
+			},
 			onReset: () => {
-				Object.assign(this.settings.bloom, DEFAULT_SETTINGS.bloom);
-				Object.assign(this.settings.physics, DEFAULT_SETTINGS.physics);
-				Object.assign(this.settings.look, DEFAULT_SETTINGS.look);
+				// 全部重置 = 回到默认「银河」预设（一整套外观复位）
+				const galaxy = STYLE_PRESETS.find((p) => p.id === 'galaxy');
 				this.settings.cruise = DEFAULT_SETTINGS.cruise;
 				this.settings.cruiseSpeed = DEFAULT_SETTINGS.cruiseSpeed;
-				this.applySettings();
-				this.layout.updateParams(toLayoutParams(this.settings.physics));
-				this.wasSettled = false;
-				this.saveSoon();
+				if (galaxy) this.applyStylePreset(galaxy);
+				if (this.director) {
+					this.director.cruiseEnabled = this.settings.cruise;
+					this.director.cruiseSpeed = this.settings.cruiseSpeed;
+				}
 			},
 			runScenario: (s) => void this.runScenario(s),
 		});
 	}
 
+	/** 语言切换后：销毁旧面板、按当前语言重建 */
+	rebuildPanel(): void {
+		this.panel?.dispose();
+		this.panel = null;
+		this.buildPanel();
+	}
+
+	/** 面板顶栏 中/EN 切换 */
+	setLanguage(lang: 'en' | 'zh'): void {
+		this.settings.language = lang;
+		setLang(resolveLang(lang));
+		this.saveSoon();
+		this.rebuildPanel();
+		if (this.selected >= 0) this.selectNode(this.selected, false); // 卡片按新语言重建
+	}
+
+	/** 设置页改动耐久偏好后，把它们重新应用到本视图 */
+	syncFromSettings(): void {
+		this.applySettings();
+		this.applyPreset();
+		this.autoLow = false;
+		this.lowFpsChecks = 0;
+		this.highFpsChecks = 0;
+		this.applyTier(); // 内部按 qualityOverride 重选档 + store.setCaps
+		this.store.setIncludeOrphans(this.settings.showOrphans);
+		this.store.setIncludeUnresolved(this.settings.showUnresolved);
+		this.panel?.refreshAll();
+	}
+
 	private updateHud(now: number): void {
-		this.hudFrames.push(now);
+		this.hudFrames.push(now); // 每帧都记（看门狗用），仅文本节流
 		while (this.hudFrames.length > 0 && now - (this.hudFrames[0] ?? 0) > 1000) this.hudFrames.shift();
-		const el = this.panel?.statsEl;
-		if (!el || now % 500 > 250) return;
+		if (now % 500 > 250) return;
 		const c = this.counts;
-		el.setText(
+		this.panel?.statsEl?.setText(t('hud.notes', { n: c.nodes })); // 头部：只留笔记数
+		this.panel?.advStatsEl?.setText(
 			`${this.hudFrames.length} fps · ${this.renderer?.drawCalls ?? 0} calls · ${c.nodes}n/${c.links}l · ` +
-				`${this.layout.isSettled() ? '已沉降' : '布局中'}`,
-		);
+				`${this.layout.isSettled() ? t('hud.settled') : t('hud.layouting')}`,
+		); // fps/技术指标下放到「高级」
 	}
 
 	// ---------- 基准（与 M0/M1 同场景语义） ----------

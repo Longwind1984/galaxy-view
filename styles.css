@@ -27,7 +27,9 @@
 	font-size: 12px;
 	user-select: none;
 	max-height: calc(100% - 20px);
-	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden; /* 滚动交给 body，面板框+resizer 固定 */
 }
 
 .galaxy-panel.gx-theme-dark {
@@ -78,6 +80,9 @@
 
 .galaxy-panel-body {
 	padding: 0 10px 10px;
+	flex: 1;
+	overflow-y: auto;
+	scrollbar-width: thin;
 }
 
 .galaxy-panel-body.is-hidden {
@@ -294,11 +299,37 @@
 	color: #1f2933;
 }
 
+.gx-card-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+	cursor: move;
+}
 .gx-card-title {
 	font-size: 15px;
 	font-weight: 600;
 	margin-bottom: 4px;
+	flex: 1;
+	min-width: 0;
 }
+.gx-card-collapse {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	line-height: 1;
+	font-size: 13px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	background: transparent;
+	color: inherit;
+	opacity: 0.55;
+	border-radius: 5px;
+	cursor: pointer;
+	box-shadow: none;
+}
+.gx-card-collapse:hover { opacity: 1; }
+.gx-card.is-collapsed .gx-card-body { display: none; }
 
 .gx-card-meta {
 	display: flex;
@@ -407,20 +438,25 @@
 
 .gx-chips {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 5px;
 	margin-top: 8px;
 }
 
 .gx-chip {
-	flex: 1;
+	flex: 1 1 calc(50% - 3px);
+	min-width: 0;
 	font-size: 11px;
-	padding: 4px 0;
+	padding: 5px 4px;
 	border-radius: 12px;
 	background: rgba(127, 127, 127, 0.1);
 	border: 1px solid rgba(127, 127, 127, 0.22);
 	color: inherit;
 	cursor: pointer;
 	box-shadow: none;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .gx-chip:hover {
@@ -430,6 +466,80 @@
 .gx-chip.is-active {
 	background: rgba(127, 155, 255, 0.25);
 	border-color: rgba(127, 155, 255, 0.6);
+}
+
+/* 分组标注的 chips（星系 / 特效） */
+.gx-chip-group {
+	margin-top: 8px;
+}
+
+.gx-chip-group-label {
+	font-size: 10px;
+	font-weight: 600;
+	opacity: 0.5;
+	letter-spacing: 0.06em;
+}
+
+.gx-chip-group .gx-chips {
+	margin-top: 4px;
+}
+
+/* 首屏可关闭提示（替代帮助墙） */
+.gx-firstrun-hint {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	padding: 6px 8px;
+	font-size: 11px;
+	line-height: 1.35;
+	border-radius: 6px;
+	background: rgba(127, 155, 255, 0.14);
+	border: 1px solid rgba(127, 155, 255, 0.3);
+}
+
+.gx-hint-close {
+	flex: 0 0 auto;
+	margin-left: auto;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	opacity: 0.7;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.gx-hint-close:hover {
+	opacity: 1;
+	background: rgba(127, 127, 127, 0.2);
+}
+
+/* 创世动画文字链接 */
+.gx-genesis-row {
+	margin-top: 6px;
+	text-align: center;
+}
+
+.gx-textlink {
+	font-size: 11px;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: inherit;
+	opacity: 0.65;
+	cursor: pointer;
+	text-decoration: underline dotted;
+	padding: 2px 4px;
+}
+
+.gx-textlink:hover {
+	opacity: 1;
 }
 
 .gx-section {
@@ -447,21 +557,51 @@
 	list-style: none;
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
+	width: 100%;
+	padding: 6px 2px;
+	border-radius: 6px;
+}
+.gx-section > summary:hover {
+	opacity: 0.9;
+	background: rgba(127, 155, 255, 0.08);
 }
 
-.gx-section > summary::before {
-	content: '▸';
+.gx-caret {
 	font-size: 9px;
+	display: inline-block;
+	color: var(--text-faint, #626e8a);
 	transition: transform 120ms ease;
 }
 
-.gx-section[open] > summary::before {
+.gx-section[open] > summary .gx-caret {
 	transform: rotate(90deg);
 }
 
 .gx-section-body {
 	padding-top: 2px;
+}
+
+/* 折叠「区」（导航与动效）：summary 复用区标题观感（大写+字距），仅多一个 caret */
+.gx-zone-section {
+	margin-top: 14px;
+	border-top: none;
+	padding-top: 0;
+}
+.gx-zone-section > summary {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	opacity: 1;
+	color: rgba(150, 160, 185, 0.7);
+	border-bottom: 1px solid rgba(140, 150, 180, 0.14);
+	border-radius: 0;
+	padding: 0 2px 5px;
+}
+.gx-zone-section > summary:hover {
+	background: transparent;
+	color: rgba(185, 195, 220, 0.92);
 }
 
 .gx-theme-select {
@@ -506,3 +646,114 @@
 	color: #e8ecf6;
 	cursor: pointer;
 }
+
+/* ---------- 面板 v4（v0.3 重构）：顶栏 / 分区 / 预设卡 / 导航块 / 底栏 ---------- */
+.gx-head-spacer { flex: 1; }
+.galaxy-panel-header { position: relative; flex: none; }
+/* 面板右边缘拖拽调宽 */
+.gx-resizer { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: ew-resize; z-index: 30; }
+.gx-resizer:hover { background: linear-gradient(to right, transparent, rgba(127, 155, 255, 0.25)); }
+.gx-ico {
+	width: 24px;
+	height: 24px;
+	margin-left: 5px;
+	border-radius: 7px;
+	font-size: 12px;
+	line-height: 1;
+	background: rgba(127, 127, 127, 0.12);
+	border: 1px solid rgba(127, 127, 127, 0.25);
+	color: inherit;
+	cursor: pointer;
+	box-shadow: none;
+}
+.gx-ico:hover { background: rgba(127, 155, 255, 0.2); }
+.gx-lang { display: inline-flex; margin-left: 5px; border: 1px solid rgba(127, 127, 127, 0.25); border-radius: 999px; overflow: hidden; }
+.gx-lang button { border: 0; background: transparent; color: rgba(150, 160, 185, 0.8); font-size: 11px; padding: 3px 9px; cursor: pointer; box-shadow: none; line-height: 1.3; }
+.gx-lang button.is-on { background: rgba(127, 155, 255, 0.2); color: #fff; }
+
+.gx-zone-h {
+	margin-top: 14px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: rgba(150, 160, 185, 0.7);
+	border-bottom: 1px solid rgba(140, 150, 180, 0.14);
+	padding-bottom: 4px;
+}
+
+/* preset cards */
+.gx-preset-host { margin-top: 10px; }
+.gx-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.gx-preset-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: rgba(150, 160, 185, 0.75); margin: 12px 0 5px; }
+/* 预设卡（独立命名，避开 OverlayManager 节点卡的 .gx-card——那条有 transform:translate3d(-1000px…) 会把预设卡推出屏外） */
+.gx-pcard {
+	position: relative;
+	display: block;
+	text-align: left;
+	background: rgba(140, 150, 180, 0.09);
+	border: 1px solid rgba(140, 160, 210, 0.16);
+	border-radius: 10px;
+	padding: 7px 9px;
+	cursor: pointer;
+	color: inherit;
+	box-shadow: none;
+	transition: border-color 0.12s, background 0.12s;
+}
+.gx-pcard:hover { border-color: rgba(127, 155, 255, 0.55); background: rgba(127, 155, 255, 0.14); }
+.gx-pcard.is-active { border-color: rgba(127, 155, 255, 0.55); background: rgba(127, 155, 255, 0.2); box-shadow: inset 0 0 0 1px rgba(127, 155, 255, 0.5); }
+.gx-pcard.is-confirming { border-color: rgba(255, 120, 120, 0.6); background: rgba(255, 120, 120, 0.1); }
+.gx-pcard-n { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+.gx-pcard-icon { display: inline-flex; width: 18px; height: 18px; flex: none; overflow: hidden; }
+/* 关键：约束内联 SVG 尺寸——否则无 width/height 时 SVG 按默认 300×150 展开，把卡片撑成一片空白 */
+.gx-pcard-icon svg { width: 18px; height: 18px; display: block; }
+.gx-pcard-s { font-size: 10px; color: rgba(150, 160, 185, 0.7); margin-top: 3px; line-height: 1.25; }
+.gx-pcard.is-active .gx-pcard-s { color: #b9c6ea; }
+.gx-mine-ops { position: absolute; top: 5px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.gx-pcard:hover .gx-mine-ops, .gx-pcard.is-confirming .gx-mine-ops { opacity: 1; }
+.gx-mine-ops button { width: 17px; height: 17px; border: 0; border-radius: 4px; background: rgba(0, 0, 0, 0.35); color: rgba(150, 160, 185, 0.8); font-size: 10px; line-height: 1; padding: 0; cursor: pointer; box-shadow: none; }
+.gx-mine-ops button:hover { color: #fff; background: rgba(127, 155, 255, 0.4); }
+.gx-mine-ops .gx-cd-label { font-size: 9px; color: #ffb0b0; align-self: center; padding-right: 2px; }
+.gx-mine-ops button.gx-ok { color: #7fd6a0; } .gx-mine-ops button.gx-no { color: #ff9a9a; }
+.gx-mine-ops button.gx-ok:hover { background: rgba(120, 220, 150, 0.35); color: #dfffe9; }
+.gx-mine-ops button.gx-no:hover { background: rgba(255, 120, 120, 0.35); color: #ffe1e1; }
+
+/* section markers */
+.gx-sec-head-spacer { flex: 1; }
+.gx-sec-badge { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: rgba(140, 150, 180, 0.16); color: rgba(150, 160, 185, 0.75); }
+.gx-sec-badge.is-dirty { background: rgba(255, 185, 92, 0.16); color: #ffb95c; }
+.gx-sec-badge.is-preview { background: rgba(127, 155, 255, 0.16); color: #8ea6ff; }
+.gx-sec-restore { margin-left: 4px; border: 0; background: transparent; color: #ffb95c; font-size: 10px; cursor: pointer; box-shadow: none; }
+.gx-sec-restore:hover { text-decoration: underline; }
+.gx-sec-restore.gx-hide { display: none; }
+
+/* nav blocks */
+.gx-nav-block { margin-top: 12px; padding: 9px 10px; border: 1px solid rgba(140, 160, 210, 0.16); border-radius: 10px; background: rgba(140, 150, 180, 0.05); }
+.gx-nav-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
+.gx-nav-sub { font-size: 10.5px; color: rgba(150, 160, 185, 0.65); margin-top: 4px; line-height: 1.35; }
+.gx-mini-toggle { width: 24px; height: 22px; border-radius: 6px; border: 1px solid rgba(140, 160, 210, 0.16); background: rgba(140, 150, 180, 0.1); color: rgba(150, 160, 185, 0.8); font-size: 12px; cursor: pointer; box-shadow: none; }
+.gx-mini-toggle.is-on { background: rgba(127, 155, 255, 0.3); color: #fff; border-color: rgba(127, 155, 255, 0.5); }
+.gx-play { font-size: 11px; padding: 4px 12px; border-radius: 7px; border: 1px solid rgba(127, 155, 255, 0.5); background: rgba(127, 155, 255, 0.18); color: #dfe6ff; cursor: pointer; box-shadow: none; }
+.gx-play:hover { background: rgba(127, 155, 255, 0.3); }
+
+/* segmented (quality) */
+.gx-seg { display: flex; gap: 2px; margin-top: 10px; padding: 2px; background: rgba(140, 150, 180, 0.16); border-radius: 8px; }
+.gx-seg button { flex: 1; border: 0; background: transparent; color: rgba(150, 160, 185, 0.8); font-size: 11px; padding: 5px 4px; border-radius: 6px; cursor: pointer; box-shadow: none; }
+.gx-seg button.is-on { background: rgba(127, 155, 255, 0.3); color: #fff; }
+
+.gx-sub { font-size: 10.5px; color: rgba(150, 160, 185, 0.65); margin-top: 7px; line-height: 1.35; }
+.gx-footer { margin-top: 14px; padding-top: 8px; border-top: 1px solid rgba(140, 150, 180, 0.14); }
+.gx-textlike { background: transparent; }
+.gx-adv-stats { font-size: 10.5px; color: rgba(150, 160, 185, 0.6); margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+/* persistent help popover */
+.gx-help-pop { position: absolute; z-index: 20; right: 0; top: 32px; width: 232px; background: rgba(20, 24, 38, 0.98); border: 1px solid rgba(127, 155, 255, 0.5); border-radius: 10px; padding: 11px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6); }
+.gx-help-pop h4 { margin: 0 0 8px; font-size: 12px; }
+.gx-help-lines { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: rgba(200, 210, 235, 0.85); line-height: 1.4; }
+
+/* node card: link-depth control */
+/* 关联深度：低优先级——小、淡、卡片底部一行 */
+.gx-card-depth { display: flex; align-items: center; gap: 5px; margin-top: 9px; padding-top: 7px; border-top: 1px solid rgba(150, 160, 185, 0.12); font-size: 9.5px; color: rgba(150, 160, 185, 0.5); }
+.gx-card-depth-mini { display: inline-flex; border: 1px solid rgba(140, 160, 210, 0.16); border-radius: 5px; overflow: hidden; }
+.gx-card-depth-mini button { border: 0; background: transparent; color: rgba(150, 160, 185, 0.6); font-size: 9.5px; padding: 1px 7px; cursor: pointer; box-shadow: none; }
+.gx-card-depth-mini button.is-on { background: rgba(127, 155, 255, 0.2); color: rgba(230, 236, 246, 0.95); }

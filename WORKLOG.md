@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-06 · 发布 0.2.0 上线（已推 GitHub Release，社区商店用户将收到更新）
+
+### 做了什么
+Rick 拍板「直接上线」。走完发布全流程并核验成功：
+- **版本 0.1.1 → 0.2.0**：manifest.json / package.json / versions.json（`0.2.0 → minAppVersion 1.8.7`）。
+- **发布质量门**：build/lint/test 全绿（23）；核验 prod dist 里 `__GALAXY_DEV__` 与 bench 模块内部（collectFrames/observeLongTasks）已死代码剔除；bench 命令在 `if(!__GALAXY_DEV__)return` 之后注册→商店构建不注册（残留的 `runScenario` 死方法与 0.1.1 一致、非用户可见、无碍）。
+- **README 刷新**：预设 4→8、补漫游/连接两篇/双语/二度、修「pending review」为已上架、Usage 面板结构更新。
+- **git**：把 feat/v0.2 全量工作提交（be86e0b）→ fast-forward 合入 main → push main（Obsidian 据 main 的 manifest 版本判定更新）→ 打 tag `0.2.0` push → 触发 `release.yml`。
+- **CI 成功（35s）**：npm ci + lint + test + build + 产物证明(attestation) + `gh release create`。**Release 已发布**（非 draft/prerelease），三件套 main.js/manifest.json/styles.css 齐全。
+
+### 现状 / 待办
+- **已上线**：https://github.com/Longwind1984/galaxy-view/releases/tag/0.2.0 。既有商店用户会在「检查更新」看到 0.2.0（社区商店更新走 GitHub Release 自动传播，无需再提交 obsidian-releases PR）。
+- **未尽（小）**：README.zh.md 未同步刷新（仅英文 README 更新了）；feat/v0.2 本地分支已合入 main、留着未删。审美数值（漫游节奏、取景余量 1.5×、环绕恢复 6s 等）仍是可调起点，待 Rick 真机浸泡反馈。
+
 ## 2026-07-06 · 导览模块从产品层重构为「漫游 + 连接两篇」（方向 C），computer-use 亲验双通
 
 ### 做了什么

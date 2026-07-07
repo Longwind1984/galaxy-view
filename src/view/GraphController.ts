@@ -24,6 +24,7 @@ import { STYLE_PRESETS } from '../render/stylePresets';
 import { OverlayManager } from '../overlay/OverlayManager';
 import { NodeSearchModal } from './SearchModal';
 import { resolveLang, setLang, t } from '../i18n';
+import type { LangPref } from '../i18n';
 import { collectFrames, observeLongTasks, writeBenchResult, sleep } from '../bench/bench';
 import type { QualityTier } from '../quality/tiers';
 import { TIERS } from '../quality/tiers';
@@ -60,6 +61,8 @@ export class GraphController {
 
 	private hudFrames: number[] = [];
 	private intersection: IntersectionObserver | null = null;
+	private boundWin: Window | null = null; // 视图当前所在窗口（可能被移动到弹出窗口，见 issue #4）
+	private onVisChange: (() => void) | null = null;
 	private disposeFns: (() => void)[] = [];
 	private saveSoon: () => void;
 	private tier: QualityTier = TIERS.high;
@@ -185,7 +188,8 @@ export class GraphController {
 			}
 			this.updateHud(now);
 			this.watchdog(now);
-			this.rafId = window.requestAnimationFrame(loop);
+			// 用视图所在窗口的 rAF：视图在弹出窗口且主窗口被切后台时，主窗口 rAF 会被节流/暂停（issue #4）
+			this.rafId = (this.boundWin ?? window).requestAnimationFrame(loop);
 		};
 		this.rafId = window.requestAnimationFrame(loop);
 	}
@@ -203,6 +207,8 @@ export class GraphController {
 	}
 
 	resize(): void {
+		// 视图可能被「移动到新窗口」——document 变了就重绑可见性（否则旧观察器误判不可见 → 黑屏，issue #4）
+		if (this.contentEl.ownerDocument.defaultView !== this.boundWin) this.rebindVisibility();
 		const { clientWidth: w, clientHeight: h } = this.contentEl;
 		this.renderer?.resize(w, h);
 	}
@@ -574,7 +580,7 @@ export class GraphController {
 	/** preset + app 主题 → tokens（adaptive 深色与深空共用场景） */
 	applyPreset(): void {
 		if (!this.renderer) return;
-		const isDark = activeDocument.body.hasClass('theme-dark');
+		const isDark = this.contentEl.ownerDocument.body.hasClass('theme-dark'); // 用视图自己窗口的主题（支持弹出窗口）
 		const tokens = this.settings.preset === 'deep-space' || isDark ? DEEP_SPACE : DAYLIGHT;
 		this.renderer.applyTokens(tokens, this.settings.bloom.strength);
 		this.panel?.setPanelTheme(tokens.id === 'daylight' ? 'gx-theme-light' : 'gx-theme-dark');
@@ -772,16 +778,32 @@ export class GraphController {
 	// ---------- 可见性暂停 ----------
 
 	private bindVisibility(): void {
+		this.rebindVisibility();
+	}
+
+	/**
+	 * 把可见性判断绑定到「视图当前所在窗口」，支持被移动到弹出窗口（issue #4）：
+	 * 旧实现用全局 activeDocument + 主窗口的 IntersectionObserver——视图移到新窗口后，
+	 * 观察器把已在新窗口里的元素当作不可见 → paused=true → 渲染循环跳过 → 黑屏。
+	 * 这里改用视图自己 document 的可见性 + 新窗口的 IntersectionObserver（root 才是对的）。
+	 */
+	private rebindVisibility(): void {
+		const doc = this.contentEl.ownerDocument;
+		const win = doc.defaultView ?? window;
+		this.intersection?.disconnect();
+		if (this.onVisChange && this.boundWin) this.boundWin.document.removeEventListener('visibilitychange', this.onVisChange);
+		this.boundWin = win;
 		const onVis = () => {
-			this.paused = activeDocument.hidden || !this.visible;
+			this.paused = doc.hidden || !this.visible;
 		};
-		activeDocument.addEventListener('visibilitychange', onVis);
-		this.disposeFns.push(() => activeDocument.removeEventListener('visibilitychange', onVis));
-		this.intersection = new IntersectionObserver((entries) => {
+		this.onVisChange = onVis;
+		doc.addEventListener('visibilitychange', onVis);
+		this.intersection = new win.IntersectionObserver((entries) => {
 			this.visible = entries[0]?.isIntersecting ?? true;
 			onVis();
 		});
 		this.intersection.observe(this.contentEl);
+		onVis(); // 立即同步一次
 	}
 
 	// ---------- 控制面板 ----------
@@ -881,10 +903,10 @@ export class GraphController {
 		this.buildPanel();
 	}
 
-	/** 面板顶栏 中/EN 切换 */
-	setLanguage(lang: 'en' | 'zh'): void {
-		this.settings.language = lang;
-		setLang(resolveLang(lang));
+	/** 面板顶栏语言切换（自动 + 六语） */
+	setLanguage(pref: LangPref): void {
+		this.settings.language = pref;
+		setLang(resolveLang(pref));
 		this.saveSoon();
 		this.rebuildPanel();
 		if (this.selected >= 0) this.selectNode(this.selected, false); // 卡片按新语言重建
@@ -1016,9 +1038,12 @@ export class GraphController {
 	// ---------- 销毁合同 ----------
 
 	dispose(): void {
-		window.cancelAnimationFrame(this.rafId);
+		(this.boundWin ?? window).cancelAnimationFrame(this.rafId);
 		this.intersection?.disconnect();
 		this.intersection = null;
+		if (this.onVisChange && this.boundWin) this.boundWin.document.removeEventListener('visibilitychange', this.onVisChange);
+		this.onVisChange = null;
+		this.boundWin = null;
 		for (const fn of this.disposeFns) fn();
 		this.disposeFns = [];
 		this.maskEl?.remove();

@@ -46,8 +46,8 @@ export interface GalaxySettings {
 	activePreset: string;
 	/** 用户保存的自定义预设（可排序/删除） */
 	customPresets: import('./render/stylePresets').StylePreset[];
-	/** 界面语言：auto=跟随 Obsidian（见 src/i18n） */
-	language: 'auto' | 'en' | 'zh';
+	/** 界面语言：auto=跟随 Obsidian（见 src/i18n）；en/zh/de/it/es/pt */
+	language: import('./i18n').LangPref;
 	/** 面板各折叠分区的展开状态（稳定 sectionId → 是否展开） */
 	panelSections: Record<string, boolean>;
 	/** 浮动面板宽度（px，可拖右边缘调整） */
@@ -148,7 +148,9 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 						!!p && typeof (p as { id?: unknown }).id === 'string' && typeof (p as { physics?: unknown }).physics === 'object' && typeof (p as { bloom?: unknown }).bloom === 'object' && typeof (p as { look?: unknown }).look === 'object',
 				)
 			: [],
-		language: sv.language === 'en' || sv.language === 'zh' || sv.language === 'auto' ? sv.language : d.language,
+		language: (['auto', 'en', 'zh', 'de', 'it', 'es', 'pt'] as const).includes(sv.language as 'auto')
+			? (sv.language as import('./i18n').LangPref)
+			: d.language,
 		panelSections:
 			sv.panelSections && typeof sv.panelSections === 'object' && !Array.isArray(sv.panelSections)
 				? (Object.fromEntries(

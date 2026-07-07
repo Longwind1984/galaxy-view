@@ -1,17 +1,33 @@
 import { getLanguage, moment } from 'obsidian';
 import { EN } from './en';
 import { ZH } from './zh';
+import { DE } from './de';
+import { IT } from './it';
+import { ES } from './es';
+import { PT } from './pt';
 
-export type Lang = 'en' | 'zh';
+export type Lang = 'en' | 'zh' | 'de' | 'it' | 'es' | 'pt';
 /**
  * English is canonical: the set of keys comes from EN, values are plain strings.
- * (Deriving keys from `typeof EN` keeps a missing zh key a compile error, while
- * mapping values to `string` lets zh hold different text than en.)
+ * (Deriving keys from `typeof EN` keeps a missing key in any dict a compile error,
+ * while mapping values to `string` lets each language hold different text.)
  */
 export type Dict = Record<keyof typeof EN, string>;
 export type LangPref = 'auto' | Lang;
 
-const DICTS: Record<Lang, Dict> = { en: EN, zh: ZH };
+/** Ordered for the switcher menu; each entry's `name` is its endonym (shown as-is). */
+export const LANGS: { code: Lang; name: string }[] = [
+	{ code: 'en', name: 'English' },
+	{ code: 'zh', name: '中文' },
+	{ code: 'de', name: 'Deutsch' },
+	{ code: 'it', name: 'Italiano' },
+	{ code: 'es', name: 'Español' },
+	{ code: 'pt', name: 'Português' },
+];
+
+const DICTS: Record<Lang, Dict> = { en: EN, zh: ZH, de: DE, it: IT, es: ES, pt: PT };
+/** Obsidian locale prefixes we map to a supported language (checked in order). */
+const DETECT: Lang[] = ['zh', 'de', 'it', 'es', 'pt'];
 
 let lang: Lang = 'en';
 let active: Dict = EN;
@@ -26,12 +42,13 @@ export function setLang(l: Lang): void {
 }
 
 /**
- * Resolve the effective language. `auto` reads Obsidian's UI language via
- * getLanguage() (available from the 1.8.7 minAppVersion floor), falling back to
- * moment.locale() then 'en'. Anything whose prefix is `zh` maps to zh; else en.
+ * Resolve the effective language. A non-`auto` preference is used as-is. `auto`
+ * reads Obsidian's UI language via getLanguage() (available from the 1.8.7
+ * minAppVersion floor), falling back to moment.locale(), then 'en'. The locale
+ * prefix is matched against the supported set; anything else falls back to 'en'.
  */
 export function resolveLang(pref: LangPref): Lang {
-	if (pref === 'en' || pref === 'zh') return pref;
+	if (pref !== 'auto') return pref;
 	let raw = '';
 	try {
 		raw = getLanguage() || '';
@@ -45,7 +62,9 @@ export function resolveLang(pref: LangPref): Lang {
 			/* moment always present via obsidian, but stay safe */
 		}
 	}
-	return raw.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+	raw = raw.toLowerCase();
+	for (const l of DETECT) if (raw.startsWith(l)) return l;
+	return 'en';
 }
 
 /**

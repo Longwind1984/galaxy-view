@@ -1,11 +1,12 @@
-import { Platform } from 'obsidian';
+import { Menu, Platform } from 'obsidian';
 import type { GalaxySettings } from '../settings';
 import { DEFAULT_SETTINGS } from '../settings';
 import type { StylePreset } from '../render/stylePresets';
 import { STYLE_PRESETS } from '../render/stylePresets';
 import type { ColorTheme } from '../render/colorThemes';
 import { COLOR_THEMES } from '../render/colorThemes';
-import { getLang, t } from '../i18n';
+import { getLang, t, LANGS } from '../i18n';
+import type { Lang, LangPref } from '../i18n';
 import { drawPresetIcon } from './presetIcons';
 import { Slider } from './Slider';
 
@@ -37,7 +38,7 @@ export interface ControlPanelCallbacks {
 	onConnectTwo: () => void;
 	onTourSpeed: () => void;
 	onSectionToggle: (id: string, open: boolean) => void;
-	onLanguage: (lang: 'en' | 'zh') => void;
+	onLanguage: (pref: LangPref) => void;
 	onPanelWidth: (w: number) => void;
 	onReset: () => void;
 	runScenario: (s: 'S1' | 'S2' | 'S3') => void;
@@ -93,14 +94,10 @@ export class ControlPanel {
 		const header = this.root.createDiv({ cls: 'galaxy-panel-header' });
 		this.statsEl = header.createDiv({ cls: 'galaxy-panel-stats', text: '…' });
 		header.createDiv({ cls: 'gx-head-spacer' });
-		const langPill = header.createDiv({ cls: 'gx-lang' });
-		const curLang = getLang();
-		const zhBtn = langPill.createEl('button', { text: '中' });
-		zhBtn.toggleClass('is-on', curLang === 'zh');
-		zhBtn.addEventListener('click', () => cb.onLanguage('zh'));
-		const enBtn = langPill.createEl('button', { text: 'EN' });
-		enBtn.toggleClass('is-on', curLang === 'en');
-		enBtn.addEventListener('click', () => cb.onLanguage('en'));
+		// 语言：表头显示当前语言码，点开原生 Menu 选 自动 + 六语（当前项打勾）——比开关列扩展到多语言更干净
+		const langBtn = header.createEl('button', { cls: 'gx-lang-btn', text: this.langLabel(getLang()) });
+		langBtn.setAttribute('aria-label', t('set.language'));
+		langBtn.addEventListener('click', (e) => this.openLangMenu(e, cb));
 		const helpBtn = header.createEl('button', { cls: 'gx-ico', text: '?' });
 		const collapseBtn = header.createEl('button', { cls: 'gx-ico galaxy-panel-collapse', text: '−' });
 		const body = this.root.createDiv({ cls: 'galaxy-panel-body' });
@@ -507,6 +504,21 @@ export class ControlPanel {
 			grip.addEventListener('pointermove', move);
 			grip.addEventListener('pointerup', up);
 		});
+	}
+
+	/** 表头语言按钮的短标签：zh 用「中」，其余用大写码（EN/DE/IT/ES/PT） */
+	private langLabel(l: Lang): string {
+		return l === 'zh' ? '中' : l.toUpperCase();
+	}
+
+	/** 语言菜单：自动 + 六语，当前偏好项打勾 */
+	private openLangMenu(e: MouseEvent, cb: ControlPanelCallbacks): void {
+		const menu = new Menu();
+		menu.addItem((i) => i.setTitle(t('set.language.auto')).setChecked(this.settings.language === 'auto').onClick(() => cb.onLanguage('auto')));
+		for (const l of LANGS) {
+			menu.addItem((i) => i.setTitle(l.name).setChecked(this.settings.language === l.code).onClick(() => cb.onLanguage(l.code)));
+		}
+		menu.showAtMouseEvent(e);
 	}
 
 	setPanelTheme(cls: 'gx-theme-dark' | 'gx-theme-light'): void {

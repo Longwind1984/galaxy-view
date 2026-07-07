@@ -6,7 +6,8 @@ import type GalaxyViewPlugin from '../main';
 import { VIEW_TYPE_GALAXY } from '../constants';
 import { GalaxyView } from '../view/GalaxyView';
 import { mergeSettings } from '../settings';
-import { resolveLang, setLang, t } from '../i18n';
+import { resolveLang, setLang, t, LANGS } from '../i18n';
+import type { LangPref } from '../i18n';
 
 /**
  * 设置页承载「耐久偏好」：语言、画质、视觉模式、显示孤儿/未解析、全部重置。
@@ -39,21 +40,18 @@ export class GalaxySettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName(t('set.language'))
 			.setDesc(t('set.language.desc'))
-			.addDropdown((d) =>
-				d
-					.addOption('auto', t('set.language.auto'))
-					.addOption('en', t('set.language.en'))
-					.addOption('zh', t('set.language.zh'))
-					.setValue(s.language)
-					.onChange(async (v) => {
-						s.language = v === 'en' || v === 'zh' ? v : 'auto';
-						setLang(resolveLang(s.language));
-						await this.plugin.saveSettings();
-						this.eachView((view) => view.controller?.rebuildPanel());
-						new Notice(t('set.langChanged'));
-						this.render(); // 用新语言重绘本页
-					}),
-			);
+			.addDropdown((d) => {
+				d.addOption('auto', t('set.language.auto'));
+				for (const l of LANGS) d.addOption(l.code, l.name); // en/zh/de/it/es/pt（endonym）
+				d.setValue(s.language).onChange(async (v) => {
+					s.language = (['auto', 'en', 'zh', 'de', 'it', 'es', 'pt'] as const).includes(v as 'auto') ? (v as LangPref) : 'auto';
+					setLang(resolveLang(s.language));
+					await this.plugin.saveSettings();
+					this.eachView((view) => view.controller?.rebuildPanel());
+					new Notice(t('set.langChanged'));
+					this.render(); // 用新语言重绘本页
+				});
+			});
 
 		new Setting(containerEl)
 			.setName(t('set.quality'))

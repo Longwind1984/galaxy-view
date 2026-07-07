@@ -1,5 +1,5 @@
 import type { App } from 'obsidian';
-import { TFile, getAllTags, moment } from 'obsidian';
+import { TFile, getAllTags } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
 import { getLang, t } from '../i18n';
@@ -169,10 +169,11 @@ export class OverlayManager {
 		}
 
 		const stats = body.createDiv({ cls: 'gx-card-stats' });
-		stats.setText(
-			t('card.stats', { in: node.inDegree, out: node.outDegree }) +
-				(tfile ? ` · ${moment(tfile.stat.mtime).locale(getLang() === 'zh' ? 'zh-cn' : 'en').format('ll')}` : ''),
-		);
+		// 用原生 Intl 而非 obsidian 的 moment（后者类型松散会触发 no-unsafe-* 告警）
+		const mdate = tfile
+			? ` · ${new Date(tfile.stat.mtime).toLocaleDateString(getLang() === 'zh' ? 'zh-CN' : 'en', { year: 'numeric', month: 'short', day: 'numeric' })}`
+			: '';
+		stats.setText(t('card.stats', { in: node.inDegree, out: node.outDegree }) + mdate);
 
 		if (tfile) {
 			const snippetEl = body.createDiv({ cls: 'gx-card-snippet', text: '…' });

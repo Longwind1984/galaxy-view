@@ -1,6 +1,6 @@
 {
 	"name": "galaxy-view",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Cinematic 3D graph view for your vault — NASA Eyes style",
 	"main": "main.js",
 	"type": "module",
@@ -25,7 +25,7 @@
 		"@types/three": "^0.184.0",
 		"esbuild": "0.25.5",
 		"eslint": "^9.39.4",
-		"eslint-plugin-obsidianmd": "^0.3.0",
+		"eslint-plugin-obsidianmd": "^0.4.1",
 		"globals": "^17.6.0",
 		"jiti": "^2.6.1",
 		"obsidian": "latest",

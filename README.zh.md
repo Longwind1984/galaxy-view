@@ -1,43 +1,52 @@
 # Galaxy View（星系视图）
 
-> Obsidian 的电影感 3D 图谱插件——像 NASA "Eyes on Asteroids" 一样飞行穿越你的第二大脑。
+Obsidian 的电影感 3D 图谱插件——像 NASA [Eyes on Asteroids](https://eyes.nasa.gov/apps/asteroids/#/home) 一样飞行穿越你的库。
 
-## 这是什么
+你的笔记变成一座星系：按图谱分组着色的辉光节点、纤细低饱和的链接丝线、缓慢旋转的星空背景，以及滑行而非跳切的镜头。对 PKM 而言，颜值与可玩性本身就是生产力的一部分。
 
-替代 Obsidian 自带 2D Graph View 的 3D 图谱视图。当笔记达到几千篇时，2D 图既不惊艳、也难以发现节点间的关联 pattern。Galaxy View 把整库渲染成一座可飞行探索的星系：辉光节点、星空背景、缓动镜头、搜索定位飞行、闲置巡航。
+> English docs: [README.md](README.md)。
 
-**产品判断**：对 PKM 场景，颜值和可玩性本身就是生产力的一部分。但「惊艳」的来源是克制（NASA 配方：纯黑背景 + 选择性辉光 + 慢镜头），不是特效堆砌。
+## 亮点
 
-## 怎么跑
+- **真实库上够快**——3,000+ 笔记 / 20,000+ 链接以 60fps、10 个以内 draw call 渲染。力学模拟跑在 Web Worker：布局期间主线程零卡顿。
+- **电影感镜头**——点节点飞入（相机偏轴到达并立即环绕，优先扫过邻居密集的一侧）、闲置自动环绕带有机漂移、开场从中心绽放整座星系的创世动画。
+- **可玩的力学**——斥力、链接距离/强度、中心引力，以及把点云压成致密亮核 + 旋臂盘的 `coreGravity`/`spiral` 力。拖动滑杆，实时看宇宙重排。
+- **风格与配色预设**——八套手绘 icon 预设（银河、旋臂、轨道、深空场、星云、极简、烟火、超新星），在星空背景/配色/大小/力学/辉光五维上各有差异；悬停实时预览、点击应用。可存自己的预设（排序/删除），另有多套配色主题（哈勃深空、霓虹、落日、赛博、黑客、极光），或从核心 2D 图谱一键导入你的颜色分组。
+- **导览**——**漫游**：一键氛围自动巡游，镜头在你重要与久未重温的笔记间穿行；**连接两篇**：选任意两篇笔记，沿最短链接路径飞一遍。
+- **聚焦模式**——选中一篇笔记会把其余节点调暗、只留其邻域（可选延伸到二度），满饱和高亮其链接，并弹出可拖动/收起的卡片（含反链、标签、摘要）。
+- **双语界面**——English / 中文，自动跟随 Obsidian 语言，面板内可切换。
+- **搜索与导航**——模糊搜索飞向任意笔记；`WASD`/`Q`/`E` 自由飞行；右键拖或 ⌘ 拖平移；`F`/`R`/`ESC` 快捷键。
+- **移动端自适应**——手机上自动降档（无后处理、按度数取前 1500 节点、底部弹层卡片），在 iOS/Android 上保持流畅。
+- **两种视觉方向**——恒暗深空，或随主题自适应（含一套设计过的墨纸浅色模式）。
+
+## 安装
+
+**从社区插件商店**：搜索 "Galaxy view"。
+
+**通过 BRAT**：在 BRAT 插件里添加 `Longwind1984/galaxy-view`。
+
+**手动**：从最新 release 下载 `main.js`、`manifest.json`、`styles.css` 到 `<你的库>/.obsidian/plugins/galaxy-view/`，然后在「设置 → 第三方插件」里启用。
+
+## 使用
+
+点左侧 ribbon 的轨道图标，或运行命令 "Open galaxy view"。左上角的控制面板含预设选择器、可折叠的「外观 / 辉光 / 力学」分区、导航与动效区（自动环绕、漫游、连接两篇）以及高级选项。悬停任意滑杆并双击可重置；一切自动持久化。
+
+## 隐私
+
+无任何网络请求、无遥测。插件读取你库的链接图谱，以及（可选、只读）核心图谱在 `.obsidian/graph.json` 里的颜色分组。
+
+## 开发
 
 ```bash
 npm install
-npm run dev      # watch 构建，输出到 ./dev-vault/.obsidian/plugins/galaxy-view/（hot-reload 自动重载）
+npm run dev      # watch 构建，输出到 ./dev-vault/.obsidian/plugins/galaxy-view/（配合 Hot Reload 自动重载）
 npm run build    # 产物在 ./dist/（main.js + manifest.json + styles.css）
 npm run lint     # eslint（含 obsidianmd 商店合规规则）
 npm run test     # vitest
 ```
 
-开发环境：本地克隆 dev vault（`./dev-vault/`，gitignored，仅含 .md 文件）——不要直接在 iCloud 真实 vault 里开发（同步 churn + 开发版可能冻住正在用的库）。重建 dev vault：
+不要直接在 iCloud 真实库里开发——用一份本地克隆的 dev vault（`./dev-vault/`，已 gitignore、仅含 `.md`）。设计文档见 `docs/design/`，进展见 [WORKLOG.md](WORKLOG.md)。
 
-```bash
-rsync -a --exclude='.obsidian/' --exclude='.trash/' --include='*/' --include='*.md' --exclude='*' \
-  --prune-empty-dirs "<真实 vault 路径>/" dev-vault/
-```
+## 许可
 
-## 关键 tradeoff 与被否决的方案
-
-| 决策 | 被否决的备选 | 原因 |
-|---|---|---|
-| 全新构建 | fork 现有 4 个 3D 插件 | 全部停更、死因相同（逐对象渲染性能墙）+ 依赖腐烂；MIT 代码作参考即可 |
-| 3d-force-graph 为宿主 + 聚合渲染（1×Points + 1×LineSegments） | 库默认逐节点/逐边 Object3D | ~22.7k draw call 是前人死因；聚合后 <45 call，且点精灵 shader 正是 NASA 发光球观感 |
-| three.js WebGL 基线 | WebGPU / Babylon.js / cosmos.gl | 用户 Electron 落后不可依赖 WebGPU；Babylon 无图谱生态；cosmos.gl 仅 2D |
-| DOM 浮层标签 | 画布内文字（spritetext） | NASA 生产代码同款；CJK 清晰 + Obsidian CSS 变量换肤 |
-| 链接 NormalBlending 低透明度 | AdditiveBlending | 1.9 万条线在枢纽核心叠加会白爆 |
-| V1 默认只渲染有效链接 | 完全对齐 graph.json（含未解析） | 含未解析是 ~9.8k 节点，复刻前人死亡现场；做成性能门控开关 |
-
-完整设计文档见 `docs/design/`（实施计划 + 架构/视觉/风险三视角）。
-
-## 状态
-
-M0 性能尖刺阶段——真实 vault 数据（3,230 节点 / 19,337 边）已点亮，基准进行中。进展与基准数字见 [WORKLOG.md](WORKLOG.md)。
+[MIT](LICENSE)

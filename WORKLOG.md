@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-07-07 · 修复插件评审失败 → 发布 0.2.1
+
+### 做了什么
+0.2.0 被 Obsidian 评审机器人判 **Failed**：SOURCE CODE 3 个 error，均在 `src/settings/SettingsTab.ts:7`——那里用 `/* eslint-disable @typescript-eslint/no-deprecated */` 关掉了「弃用 API」检查，而评审用的**更新版 `eslint-plugin-obsidianmd`（0.4.x）禁止关闭该规则**（require-description / disable-enable-pair / no-restricted-disable 三条元规则同时触发）。本地 0.3.0 的 lint 放行了它，所以我这端一开始没发现。
+
+**复现**：把 devDep `eslint-plugin-obsidianmd` 从 0.3.0 升到 **0.4.1**，`npm run lint` 精确复现了评审机器人的 3 个 error + 2 个 warning。**根治**（而非压制）：
+- **SettingsTab**：3 个 error 其实是 3 处**弃用方法调用**（`this.display()`×2、`.setWarning()`×1，不是 display 覆写本身）。→ 抽出私有 `render()`，内部重绘调 `render()` 而非弃用的 `display()`；销毁按钮改 `buttonEl.addClass('mod-warning')`（免版本依赖，`setDestructive()` 要 1.13.0 会炸 1.12.x 用户）。删掉整段 eslint-disable。
+- **OverlayManager**：卡片日期 `moment(...).format('ll')` 的 moment 类型松散 → 触发 no-unsafe-* 告警。改用原生 `Intl.toLocaleDateString`（顺带去掉 moment 依赖）。
+- **styles.css**：`.gx-textlink` 的 `text-decoration: underline dotted` → 简化为 `underline`（消 CSS 部分支持告警）。
+
+**结果**：0.4.1 lint **0 error**（剩 2 个非阻断 warning：eslint.config 的 `config()` 弃用——在 dev 工具文件、评审机器人不查；`prefer-setting-definitions`——`getSettingDefinitions` 需 1.13.0、我们下限 1.8.7，属既定取舍）。build/test（23）全绿。
+
+### 现状
+- **已重新发布 0.2.1**：commit `3d0a01e` → main → tag `0.2.1` → `release.yml` CI **成功**（这次 CI 的 lint 用 0.4.1，等价评审机器人规则、0 error），Release 三件套齐全。评审机器人对 0.2.1 应判 Pass（SOURCE CODE 0 error）。
+- **教训**：本地 lint 要和评审机器人对齐——把 `eslint-plugin-obsidianmd` 升到 0.4.1 并锁进 package-lock，以后 CI/本地会先于机器人抓到同类问题。
+
 ## 2026-07-06 · 发布 0.2.0 上线（已推 GitHub Release，社区商店用户将收到更新）
 
 ### 做了什么

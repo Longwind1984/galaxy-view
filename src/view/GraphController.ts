@@ -8,13 +8,14 @@ import { readGraphColorGroups } from '../settings/graphJsonImport';
 import type { ColorTheme } from '../render/colorThemes';
 import { COLOR_THEMES } from '../render/colorThemes';
 import { GraphStore } from '../data/GraphStore';
+import { topTags } from '../data/tags';
 import { neighborhood, shortestPath } from '../data/Adjacency';
 import { seedRadius } from '../data/seed';
 import type { LayoutEngine } from '../layout/LayoutEngine';
 import { MainThreadForceLayout } from '../layout/MainThreadForceLayout';
 import { WorkerForceLayout } from '../layout/WorkerForceLayout';
 import { AggregateRenderer } from '../render/AggregateRenderer';
-import { makeNodeColorFn, fallbackColorFn } from '../render/palette';
+import { makeNodeColorFn, fallbackColorFn, tagColorFn } from '../render/palette';
 import { DAYLIGHT, DEEP_SPACE } from '../render/presets';
 import { CameraDirector } from '../interactions/CameraDirector';
 import { TourDirector } from '../tour/TourDirector';
@@ -87,9 +88,19 @@ export class GraphController {
 		return { nodes: this.store.data.nodes.length, links: this.store.data.links.length };
 	}
 
+	private nodeColorFn(): import('../render/palette').NodeColorFn {
+		if (this.settings.colorByTag) return tagColorFn;
+		return this.settings.colorGroups.length > 0 ? makeNodeColorFn(this.settings.colorGroups) : fallbackColorFn;
+	}
+
+	private applyNodeColors(): void {
+		this.renderer?.setColorFn(this.nodeColorFn());
+		this.renderer?.recolor();
+	}
+
 	async start(): Promise<void> {
 		await this.store.ensureCacheReady();
-		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, () => this.onDataChanged());
+		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, this.settings.showTagHubs, this.settings.tagHubLimit, () => this.onDataChanged());
 		this.store.rebuild(false);
 
 		// 暖启动：用上次沉降坐标覆盖种子 → 重开即成形
@@ -100,10 +111,9 @@ export class GraphController {
 		this.graphRadius = seedRadius(this.store.data.nodes.length) * 1.6;
 		const renderer = new AggregateRenderer(container, this.graphRadius);
 		this.renderer = renderer;
-		renderer.setColorFn(
-			this.settings.colorGroups.length > 0 ? makeNodeColorFn(this.settings.colorGroups) : fallbackColorFn,
-		);
+		renderer.setColorFn(this.nodeColorFn());
 		renderer.setData(this.store.data, this.store.positions);
+		renderer.setTagLens(this.settings.tagLens);
 		this.initLayout(warm ? 0.06 : 1);
 
 		this.director = new CameraDirector(renderer.camera, renderer.renderer.domElement, {
@@ -117,6 +127,7 @@ export class GraphController {
 		this.overlay = new OverlayManager(this.contentEl, this.app, renderer, {
 			openNote: (id) => void this.app.workspace.openLinkText(id, '', true),
 			focusNode: (i) => this.selectNode(i, true),
+			onTagLens: (tag) => this.setTagLens(tag),
 			getSelectionDepth: () => this.settings.selectionDepth,
 			onSelectionDepth: (depth) => {
 				this.settings.selectionDepth = depth;
@@ -128,7 +139,7 @@ export class GraphController {
 
 		this.tour = new TourDirector({
 			nodeCount: () => this.store.data.nodes.length,
-			degreeOf: (i) => this.store.data.nodes[i]?.degree ?? 0,
+			degreeOf: (i) => (this.store.data.nodes[i]?.tagHub ? 0 : (this.store.data.nodes[i]?.degree ?? 0)),
 			nodePosition: (i, out) => renderer.nodePosition(i, out),
 			graphRadius: () => this.graphRadius,
 			selectNode: (i, fly) => this.selectNode(i, fly),
@@ -292,7 +303,10 @@ export class GraphController {
 		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
 		this.clearSelection();
 		this.renderer.setData(this.store.data, this.store.positions);
+		this.renderer.setTagLens(this.settings.tagLens);
+		this.applyTagLensFocus();
 		this.overlay?.setData(this.store.data, this.graphRadius);
+		this.panel?.refreshTags();
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
 		this.initLayout(0.3);
 		this.wasSettled = false;
@@ -419,7 +433,7 @@ export class GraphController {
 		r.setSizeMode(p.look.sizeBy);
 		r.setStarfieldEnabled(p.starfield);
 		const theme = COLOR_THEMES.find((t) => t.id === p.theme);
-		if (theme && this.settings.colorGroups.length > 0) {
+		if (theme && this.settings.colorGroups.length > 0 && !this.settings.colorByTag) {
 			const temp = this.settings.colorGroups.map((g, i) => ({ ...g, color: theme.colors[i % theme.colors.length] ?? g.color }));
 			r.setColorFn(makeNodeColorFn(temp));
 			r.recolor();
@@ -437,8 +451,7 @@ export class GraphController {
 		r.twinkleFreq = s.look.twinkle;
 		r.setSizeMode(s.look.sizeBy);
 		r.setStarfieldEnabled(s.showStarfield);
-		r.setColorFn(s.colorGroups.length > 0 ? makeNodeColorFn(s.colorGroups) : fallbackColorFn);
-		r.recolor();
+		this.applyNodeColors();
 	}
 
 	// ---------- 自定义预设 ----------
@@ -544,8 +557,7 @@ export class GraphController {
 		}
 		groups.forEach((g, i) => (g.color = theme.colors[i % theme.colors.length] ?? g.color));
 		this.settings.colorTheme = theme.id;
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
-		this.renderer?.recolor();
+		this.applyNodeColors();
 		this.saveSoon();
 	}
 
@@ -572,8 +584,7 @@ export class GraphController {
 		}
 		groups.forEach((g, i) => (g.color = colors[i] ?? g.color));
 		this.settings.colorTheme = 'custom';
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
-		this.renderer?.recolor();
+		this.applyNodeColors();
 		this.saveSoon();
 	}
 
@@ -599,8 +610,7 @@ export class GraphController {
 			return;
 		}
 		this.settings.colorGroups = groups;
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
-		this.renderer?.recolor();
+		this.applyNodeColors();
 		this.saveSoon();
 		if (notify) new Notice(t('notice.imported', { n: groups.length }));
 	}
@@ -609,6 +619,33 @@ export class GraphController {
 
 	openSearch(): void {
 		new NodeSearchModal(this.app, this.store.data.nodes, (i) => this.selectNode(i, true)).open();
+	}
+
+	private setTagLens(tag: string | null): void {
+		this.settings.tagLens = tag && this.settings.tagLens !== tag ? tag : null;
+		this.renderer?.setTagLens(this.settings.tagLens);
+		this.clearSelection();
+		this.panel?.refreshTags();
+		this.saveSoon();
+	}
+
+	private applyTagLensFocus(): void {
+		const tag = this.settings.tagLens;
+		if (!this.renderer || this.selected >= 0) return;
+		this.renderer.setFocus(tag ? (i) => (this.store.data.nodes[i]?.tags.includes(tag) ? 1 : 0.05) : null);
+		this.renderer.setSelectedLinks(tag ? this.tagLensLinks(tag) : [], []);
+	}
+
+	private tagLensLinks(tag: string): number[] {
+		const out: number[] = [];
+		const nodes = this.store.data.nodes;
+		this.store.data.links.forEach((l, i) => {
+			const s = nodes[l.source];
+			const t = nodes[l.target];
+			if (!s || !t) return;
+			if ((s.tagHub && s.tags.includes(tag)) || (t.tagHub && t.tags.includes(tag)) || (s.tags.includes(tag) && t.tags.includes(tag))) out.push(i);
+		});
+		return out;
 	}
 
 	selectNode(index: number, fly: boolean): void {
@@ -651,9 +688,9 @@ export class GraphController {
 
 	clearSelection(): void {
 		this.selected = -1;
-		this.renderer?.setFocus(null);
 		this.renderer?.setSelectedLinks([], []);
 		this.overlay?.setSelection(-1, new Set());
+		this.applyTagLensFocus();
 	}
 
 	// ---------- 巡游 / 自动驾驶（v0.3；方向 C = 漫游 + 连接两篇） ----------
@@ -846,6 +883,23 @@ export class GraphController {
 			onImportColors: () => void this.importColors(true),
 			onShuffleColors: () => this.shuffleColors(),
 			onColorTheme: (t) => this.applyColorTheme(t),
+			getTopTags: () => topTags(this.store.data.nodes, 12),
+			onTagLens: (tag) => this.setTagLens(tag),
+			onTagColorMode: (on) => {
+				this.settings.colorByTag = on;
+				this.applyNodeColors();
+				this.saveSoon();
+			},
+			onTagHubs: (on) => {
+				this.settings.showTagHubs = on;
+				this.store.setTagHubs(on, this.settings.tagHubLimit);
+				this.saveSoon();
+			},
+			onTagHubLimit: () => {
+				this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
+				this.saveSoon();
+			},
+			onResetTags: () => this.resetTags(),
 			onRecenter: () => this.recenter(),
 			onReveal: () => this.playRevealManually(),
 			onShowOrphans: (on) => {
@@ -896,6 +950,17 @@ export class GraphController {
 		});
 	}
 
+	private resetTags(): void {
+		this.settings.tagLens = null;
+		this.settings.colorByTag = DEFAULT_SETTINGS.colorByTag;
+		this.settings.showTagHubs = DEFAULT_SETTINGS.showTagHubs;
+		this.settings.tagHubLimit = DEFAULT_SETTINGS.tagHubLimit;
+		this.applyNodeColors();
+		this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
+		this.clearSelection();
+		this.saveSoon();
+	}
+
 	/** 语言切换后：销毁旧面板、按当前语言重建 */
 	rebuildPanel(): void {
 		this.panel?.dispose();
@@ -922,6 +987,7 @@ export class GraphController {
 		this.applyTier(); // 内部按 qualityOverride 重选档 + store.setCaps
 		this.store.setIncludeOrphans(this.settings.showOrphans);
 		this.store.setIncludeUnresolved(this.settings.showUnresolved);
+		this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
 		this.panel?.refreshAll();
 	}
 

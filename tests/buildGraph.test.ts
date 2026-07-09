@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGraph } from '../src/data/buildGraph';
+import { topTags } from '../src/data/tags';
 
 const files = [
 	{ path: '01学习/笔记A.md', basename: '笔记A' },
@@ -63,6 +64,43 @@ describe('buildGraph', () => {
 	});
 });
 
+describe('topTags', () => {
+	it('按出现次数排序，同分按名称稳定排序', () => {
+		const g = buildGraph(
+			[
+				{ path: 'a.md', basename: 'a', tags: ['#b', '#b', '#a'] },
+				{ path: 'b.md', basename: 'b', tags: ['#b', '#c'] },
+				{ path: 'c.md', basename: 'c', tags: ['#c'] },
+			],
+			{},
+			{},
+			{ includeUnresolved: false, includeOrphans: true },
+		);
+		expect(topTags(g.nodes, 2)).toEqual([
+			{ tag: '#b', count: 2 },
+			{ tag: '#c', count: 2 },
+		]);
+	});
+});
+
+describe('标签星云节点', () => {
+	it('tagHubLimit 开启时为 top tags 生成 hub 与星云边', () => {
+		const g = buildGraph(
+			[
+				{ path: 'a.md', basename: 'a', tags: ['#x', '#y'] },
+				{ path: 'b.md', basename: 'b', tags: ['#x'] },
+				{ path: 'c.md', basename: 'c', tags: ['#z'] },
+			],
+			{},
+			{},
+			{ includeUnresolved: false, includeOrphans: true, tagHubLimit: 1 },
+		);
+		const hub = g.nodes.find((n) => n.tagHub);
+		expect(hub).toMatchObject({ id: 'tag:#x', name: '#x', tags: ['#x'] });
+		expect(g.links.filter((l) => g.nodes[l.target]?.tagHub)).toHaveLength(2);
+	});
+});
+
 describe('孤儿过滤', () => {
 	it('includeOrphans=false 时去掉零度节点并重排边索引', () => {
 		const resolved = { '01学习/笔记A.md': { '02工作/笔记C.md': 1 } };
@@ -72,9 +110,10 @@ describe('孤儿过滤', () => {
 	});
 
 	it('fileSize 从 FileRecord.size 透传', () => {
-		const sized = [{ path: 'a.md', basename: 'a', size: 12345 }];
+		const sized = [{ path: 'a.md', basename: 'a', size: 12345, tags: ['#project', '#area'] }];
 		const g = buildGraph(sized, {}, {}, { includeUnresolved: false, includeOrphans: true });
 		expect(g.nodes[0]?.fileSize).toBe(12345);
+		expect(g.nodes[0]?.tags).toEqual(['#project', '#area']);
 	});
 });
 

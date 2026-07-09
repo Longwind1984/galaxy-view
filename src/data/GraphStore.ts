@@ -1,5 +1,5 @@
 import type { App } from 'obsidian';
-import { Component, debounce } from 'obsidian';
+import { Component, debounce, getAllTags } from 'obsidian';
 import type { GraphData } from '../types';
 import { buildGraph } from './buildGraph';
 import { buildAdjacency } from './Adjacency';
@@ -20,6 +20,8 @@ export class GraphStore extends Component {
 
 	private includeUnresolved = false;
 	private includeOrphans = true;
+	private showTagHubs = false;
+	private tagHubLimit = 20;
 	private nodeCap: number | null = null;
 	private linkCap: number | null = null;
 	private onChanged: (() => void) | null = null;
@@ -29,9 +31,11 @@ export class GraphStore extends Component {
 	}
 
 	/** dataChanged 在防抖重建完成后触发（调用方负责 reheat + 重建渲染缓冲） */
-	init(includeUnresolved: boolean, includeOrphans: boolean, onChanged: () => void): void {
+	init(includeUnresolved: boolean, includeOrphans: boolean, showTagHubs: boolean, tagHubLimit: number, onChanged: () => void): void {
 		this.includeUnresolved = includeUnresolved;
 		this.includeOrphans = includeOrphans;
+		this.showTagHubs = showTagHubs;
+		this.tagHubLimit = tagHubLimit;
 		this.onChanged = onChanged;
 		const rebuildSoon = debounce(() => this.rebuild(true), 800, true);
 		this.registerEvent(this.app.metadataCache.on('resolved', rebuildSoon));
@@ -70,18 +74,27 @@ export class GraphStore extends Component {
 		this.rebuild(true);
 	}
 
+	setTagHubs(show: boolean, limit: number): void {
+		if (show === this.showTagHubs && limit === this.tagHubLimit) return;
+		this.showTagHubs = show;
+		this.tagHubLimit = limit;
+		this.rebuild(true);
+	}
+
 	/** preservePositions=false 用于基准（全新确定性种子 → 完整冷布局） */
 	rebuild(preservePositions: boolean): void {
 		const files = this.app.vault.getMarkdownFiles().map((f) => ({
 			path: f.path,
 			basename: f.basename,
 			size: f.stat.size,
+			tags: getAllTags(this.app.metadataCache.getFileCache(f) ?? {}) ?? [],
 		}));
 		const next = buildGraph(files, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks, {
 			includeUnresolved: this.includeUnresolved,
 			includeOrphans: this.includeOrphans,
 			nodeCap: this.nodeCap,
 			linkCap: this.linkCap,
+			tagHubLimit: this.showTagHubs ? this.tagHubLimit : null,
 		});
 
 		const oldIndexById = new Map<string, number>();

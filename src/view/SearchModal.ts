@@ -26,7 +26,7 @@ export class NodeSearchModal extends SuggestModal<Hit> {
 		if (!q) {
 			// 空查询：按度数给出枢纽 top 20——「星座导览」
 			return [...this.nodes.entries()]
-				.filter(([, n]) => !n.unresolved)
+				.filter(([, n]) => !n.unresolved && !n.tagHub)
 				.sort((a, b) => b[1].degree - a[1].degree)
 				.slice(0, 20)
 				.map(([index, node]) => ({ index, node, score: 0 }));
@@ -46,7 +46,7 @@ export class NodeSearchModal extends SuggestModal<Hit> {
 		el.createDiv({ text: hit.node.name });
 		el.createDiv({
 			cls: 'gx-search-path',
-			text: t('search.hit', { path: hit.node.unresolved ? t('search.unresolved') : hit.node.id, n: hit.node.degree }),
+			text: t('search.hit', { path: hit.node.tagHub ? t('search.tagHub') : hit.node.unresolved ? t('search.unresolved') : hit.node.id, n: hit.node.degree }),
 		});
 	}
 

@@ -359,6 +359,14 @@
 	border-radius: 8px;
 	background: rgba(127, 155, 255, 0.18);
 	border: 1px solid rgba(127, 155, 255, 0.3);
+	color: inherit;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.gx-card-tag:hover {
+	background: rgba(232, 236, 246, 0.94);
+	color: #0a0e18;
 }
 
 .gx-card-stats {
@@ -466,6 +474,71 @@
 .gx-chip.is-active {
 	background: rgba(127, 155, 255, 0.25);
 	border-color: rgba(127, 155, 255, 0.6);
+}
+
+.gx-tag-lens {
+	margin-top: 10px;
+	padding-top: 8px;
+	border-top: 1px solid rgba(127, 127, 127, 0.18);
+}
+
+.gx-tag-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 11px;
+	opacity: 0.85;
+}
+
+.gx-tag-head button,
+.gx-tag-chip {
+	font-size: 10px;
+	padding: 2px 7px;
+	border-radius: 8px;
+	background: rgba(127, 127, 127, 0.12);
+	border: 1px solid rgba(127, 127, 127, 0.25);
+	color: inherit;
+	cursor: pointer;
+	box-shadow: none;
+	transition:
+		background 120ms ease,
+		color 120ms ease,
+		border-color 120ms ease;
+}
+
+.gx-tag-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 7px;
+}
+
+.gx-tag-head button:hover,
+.gx-tag-chip:hover {
+	background: rgba(232, 236, 246, 0.94);
+	border-color: rgba(255, 255, 255, 0.9);
+	color: #0a0e18;
+}
+
+.gx-tag-chip.is-active {
+	background: #e8ecf6;
+	border-color: rgba(255, 255, 255, 0.95);
+	color: #0a0e18;
+}
+
+.gx-theme-light .gx-card-tag:hover,
+.gx-theme-light .gx-tag-head button:hover,
+.gx-theme-light .gx-tag-chip:hover,
+.gx-theme-light .gx-tag-chip.is-active {
+	background: #1f2933;
+	border-color: rgba(31, 41, 51, 0.8);
+	color: #fcfaf5;
+}
+
+.gx-tag-empty {
+	font-size: 10px;
+	opacity: 0.5;
 }
 
 /* 分组标注的 chips（星系 / 特效） */

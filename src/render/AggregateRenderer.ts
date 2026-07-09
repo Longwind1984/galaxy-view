@@ -23,7 +23,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphData } from '../types';
 import { BLOOM_DEFAULTS, NODE_BASE_RADIUS, NODE_MAX_RADIUS, STARFIELD_ROTATION_RAD_PER_S } from '../constants';
 import { NODE_FRAGMENT_SHADER, NODE_VERTEX_SHADER } from './shaders';
-import { linkColor, fallbackColorFn } from './palette';
+import { linkColor, fallbackColorFn, tagColor } from './palette';
 import type { NodeColorFn } from './palette';
 import { buildStarfield, disposeStarfield, Twinkler } from './starfield';
 import type { VisualTokens } from './presets';
@@ -72,6 +72,7 @@ export class AggregateRenderer {
 	private sizes: Float32Array = new Float32Array(0);
 	private dimCurrent: Float32Array = new Float32Array(0);
 	private dimTarget: Float32Array = new Float32Array(0);
+	private tagLens: string | null = null;
 	private dimAnimating = false;
 
 	private colorFn: NodeColorFn = fallbackColorFn;
@@ -136,6 +137,9 @@ export class AggregateRenderer {
 		const nodePos = new Float32Array(n * 3);
 		nodePos.set(positions.subarray(0, n * 3));
 		const ghost = new Float32Array(n);
+		const tagHub = new Float32Array(n);
+		const tagCol = new Float32Array(n * 3);
+		const tagStrength = new Float32Array(n);
 		this.sizes = new Float32Array(n);
 		this.dimCurrent = new Float32Array(n).fill(1);
 		this.dimTarget = new Float32Array(n).fill(1);
@@ -143,6 +147,7 @@ export class AggregateRenderer {
 			const node = data.nodes[i];
 			if (!node) continue;
 			ghost[i] = node.unresolved ? 1 : 0;
+			tagHub[i] = node.tagHub ? 1 : 0;
 			this.sizes[i] = this.computeSize(node);
 		}
 		this.nodeGeometry = new BufferGeometry();
@@ -151,6 +156,9 @@ export class AggregateRenderer {
 		this.nodeGeometry.setAttribute('aSize', new BufferAttribute(this.sizes, 1));
 		this.nodeGeometry.setAttribute('aGhost', new BufferAttribute(ghost, 1));
 		this.nodeGeometry.setAttribute('aDim', new BufferAttribute(this.dimCurrent, 1));
+		this.nodeGeometry.setAttribute('aTagColor', new BufferAttribute(tagCol, 3));
+		this.nodeGeometry.setAttribute('aTagStrength', new BufferAttribute(tagStrength, 1));
+		this.nodeGeometry.setAttribute('aTagHub', new BufferAttribute(tagHub, 1));
 		this.nodeMaterial = new ShaderMaterial({
 			vertexShader: NODE_VERTEX_SHADER,
 			fragmentShader: NODE_FRAGMENT_SHADER,
@@ -185,13 +193,43 @@ export class AggregateRenderer {
 		this.scene.add(this.linkSegments);
 
 		this.recolor();
+		this.updateTagAttributes();
 		this.updatePositions();
 		this.buildSelLayer(); // 数据重建后恢复高亮层
+	}
+
+	setTagLens(tag: string | null): void {
+		this.tagLens = tag;
+		this.updateTagAttributes();
+	}
+
+	private updateTagAttributes(): void {
+		if (!this.nodeGeometry) return;
+		const colorAttr = this.nodeGeometry.getAttribute('aTagColor') as BufferAttribute;
+		const strengthAttr = this.nodeGeometry.getAttribute('aTagStrength') as BufferAttribute;
+		const colors = colorAttr.array as Float32Array;
+		const strengths = strengthAttr.array as Float32Array;
+		for (let i = 0; i < this.data.nodes.length; i++) {
+			const node = this.data.nodes[i];
+			const tag = node ? (this.tagLens && node.tags.includes(this.tagLens) ? this.tagLens : node.tags[0]) : undefined;
+			if (!tag) {
+				strengths[i] = 0;
+				continue;
+			}
+			const c = tagColor(tag);
+			colors[i * 3] = c.r;
+			colors[i * 3 + 1] = c.g;
+			colors[i * 3 + 2] = c.b;
+			strengths[i] = node?.unresolved ? 0 : node?.tagHub ? 1.25 : 1;
+		}
+		colorAttr.needsUpdate = true;
+		strengthAttr.needsUpdate = true;
 	}
 
 	private sizeMode: 'degree' | 'fileSize' | 'uniform' = 'degree';
 
 	private computeSize(node: import('../types').GraphNode): number {
+		if (node.tagHub) return Math.min(NODE_BASE_RADIUS * (2 + 0.55 * Math.sqrt(node.degree)), NODE_MAX_RADIUS * 1.15);
 		switch (this.sizeMode) {
 			case 'fileSize':
 				// 中位笔记 ~2KB；立方根压缩长尾，巨型文档不吞画面

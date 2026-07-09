@@ -5,6 +5,7 @@ import type { StylePreset } from '../render/stylePresets';
 import { STYLE_PRESETS } from '../render/stylePresets';
 import type { ColorTheme } from '../render/colorThemes';
 import { COLOR_THEMES } from '../render/colorThemes';
+import type { TagStat } from '../data/tags';
 import { getLang, t, LANGS } from '../i18n';
 import type { Lang, LangPref } from '../i18n';
 import { drawPresetIcon } from './presetIcons';
@@ -27,6 +28,12 @@ export interface ControlPanelCallbacks {
 	onImportColors: () => void;
 	onShuffleColors: () => void;
 	onColorTheme: (t: ColorTheme) => void;
+	getTopTags: () => TagStat[];
+	onTagLens: (tag: string | null) => void;
+	onTagColorMode: (on: boolean) => void;
+	onTagHubs: (on: boolean) => void;
+	onTagHubLimit: () => void;
+	onResetTags: () => void;
 	onStarfield: (on: boolean) => void;
 	onRecenter: () => void;
 	onReveal: () => void;
@@ -73,6 +80,9 @@ export class ControlPanel {
 	private orphanBtn: HTMLButtonElement | null = null;
 	private sizeByBtn: HTMLButtonElement | null = null;
 	private starfieldBtn: HTMLButtonElement | null = null;
+	private tagColorBtn: HTMLButtonElement | null = null;
+	private tagHubBtn: HTMLButtonElement | null = null;
+	private tagHost: HTMLElement | null = null;
 	private tourPlayBtn: HTMLButtonElement | null = null;
 	private presetHost: HTMLElement | null = null;
 	private secBadges: Record<string, { badge: HTMLElement; restore: HTMLElement }> = {};
@@ -191,6 +201,7 @@ export class ControlPanel {
 			cb.onShuffleColors();
 			customOpt.selected = true;
 		});
+		this.buildTagSection(section('tags', 'panel.sec.tags', null), cb, d);
 
 		// 辉光
 		const bloomSec = section(SEC.bloom, 'panel.sec.bloom', 'bloom');
@@ -453,6 +464,61 @@ export class ControlPanel {
 
 	// ---------- 标签 ----------
 
+	private buildTagSection(tagSec: HTMLElement, cb: ControlPanelCallbacks, d: GalaxySettings): void {
+		const tagHead = tagSec.createDiv({ cls: 'gx-tag-head' });
+		tagHead.createSpan({ text: t('tag.title') });
+		const reset = tagHead.createEl('button', { text: t('tag.reset') });
+		reset.addEventListener('click', () => {
+			cb.onResetTags();
+			this.refreshAll();
+		});
+
+		this.tagHost = tagSec.createDiv({ cls: 'gx-tag-chips' });
+		this.refreshTags();
+
+		const tagColorRow = tagSec.createDiv({ cls: 'galaxy-panel-row' });
+		this.tagColorBtn = tagColorRow.createEl('button', { text: this.tagColorLabel() });
+		this.tagColorBtn.addEventListener('click', () => {
+			this.settings.colorByTag = !this.settings.colorByTag;
+			this.tagColorBtn?.setText(this.tagColorLabel());
+			cb.onTagColorMode(this.settings.colorByTag);
+		});
+		this.tagHubBtn = tagColorRow.createEl('button', { text: this.tagHubLabel() });
+		this.tagHubBtn.addEventListener('click', () => {
+			this.settings.showTagHubs = !this.settings.showTagHubs;
+			this.tagHubBtn?.setText(this.tagHubLabel());
+			cb.onTagHubs(this.settings.showTagHubs);
+		});
+
+		this.sliders.push(new Slider(tagSec, { label: t('tag.hubs.limit'), min: 5, max: 50, step: 5, defaultValue: d.tagHubLimit, get: () => this.settings.tagHubLimit, set: (v) => (this.settings.tagHubLimit = v), fmt: (v) => String(Math.round(v)), onInput: cb.onTagHubLimit }));
+	}
+
+	refreshTags(): void {
+		const host = this.tagHost;
+		if (!host) return;
+		host.empty();
+		const active = this.settings.tagLens;
+		const stats = this.cb.getTopTags();
+		if (active && !stats.some((s) => s.tag === active)) stats.unshift({ tag: active, count: 0 });
+		for (const { tag, count } of stats) {
+			const chip = host.createEl('button', { cls: 'gx-tag-chip', text: count > 0 ? `${tag} ${count}` : tag });
+			chip.toggleClass('is-active', tag === active);
+			chip.addEventListener('click', () => {
+				this.cb.onTagLens(tag);
+				this.refreshTags();
+			});
+		}
+		if (stats.length === 0) host.createSpan({ cls: 'gx-tag-empty', text: t('tag.none') });
+	}
+
+	private tagColorLabel(): string {
+		return this.settings.colorByTag ? t('tag.color.on') : t('tag.color.off');
+	}
+
+	private tagHubLabel(): string {
+		return this.settings.showTagHubs ? t('tag.hubs.on') : t('tag.hubs.off');
+	}
+
 	private sizeByLabel(): string {
 		const m = this.settings.look.sizeBy;
 		return m === 'degree' ? t('sizeBy.degree') : m === 'fileSize' ? t('sizeBy.fileSize') : t('sizeBy.uniform');
@@ -475,6 +541,9 @@ export class ControlPanel {
 		this.orphanBtn?.setText(this.orphanLabel());
 		this.sizeByBtn?.setText(this.sizeByLabel());
 		this.starfieldBtn?.setText(this.starfieldLabel());
+		this.tagColorBtn?.setText(this.tagColorLabel());
+		this.tagHubBtn?.setText(this.tagHubLabel());
+		this.refreshTags();
 		this.buildPresets();
 		this.refreshMarkers();
 	}

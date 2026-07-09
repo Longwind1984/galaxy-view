@@ -1,5 +1,5 @@
 import type { App } from 'obsidian';
-import { TFile, getAllTags } from 'obsidian';
+import { TFile } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
 import { getLang, t } from '../i18n';
@@ -9,6 +9,7 @@ import { getLang, t } from '../i18n';
 export interface OverlayCallbacks {
 	openNote: (id: string) => void;
 	focusNode: (index: number) => void;
+	onTagLens: (tag: string) => void;
 	/** 卡片上的关联深度（默认一度，不起眼地切二度） */
 	getSelectionDepth: () => 1 | 2;
 	onSelectionDepth: (depth: 1 | 2) => void;
@@ -153,18 +154,16 @@ export class OverlayManager {
 		const dot = meta.createSpan({ cls: 'gx-card-dot' });
 		dot.style.background = this.renderer.nodeColorHex(index);
 		meta.createSpan({
-			text: node.unresolved ? t('card.unresolved') : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : t('card.root'),
+			text: node.tagHub ? t('card.tagHub') : node.unresolved ? t('card.unresolved') : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : t('card.root'),
 		});
 
-		const file = node.unresolved ? null : this.app.vault.getAbstractFileByPath(node.id);
+		const file = node.unresolved || node.tagHub ? null : this.app.vault.getAbstractFileByPath(node.id);
 		const tfile = file instanceof TFile ? file : null;
 
-		if (tfile) {
-			const cache = this.app.metadataCache.getFileCache(tfile);
-			const tags = cache ? (getAllTags(cache) ?? []) : [];
-			if (tags.length > 0) {
-				const tagRow = body.createDiv({ cls: 'gx-card-tags' });
-				for (const t of tags.slice(0, 5)) tagRow.createSpan({ cls: 'gx-card-tag', text: t });
+		if (node.tags.length > 0) {
+			const tagRow = body.createDiv({ cls: 'gx-card-tags' });
+			for (const tag of node.tags.slice(0, 5)) {
+				tagRow.createEl('button', { cls: 'gx-card-tag', text: tag }).addEventListener('click', () => this.cb.onTagLens(tag));
 			}
 		}
 
@@ -185,7 +184,7 @@ export class OverlayManager {
 		}
 
 		const actions = body.createDiv({ cls: 'gx-card-actions' });
-		if (!node.unresolved) {
+		if (!node.unresolved && !node.tagHub) {
 			const openBtn = actions.createEl('button', { text: t('card.open') });
 			openBtn.addEventListener('click', () => this.cb.openNote(node.id));
 		}

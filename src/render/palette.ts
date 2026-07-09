@@ -17,6 +17,7 @@ export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
 	}));
 	return (node) => {
 		if (node.unresolved) return UNRESOLVED;
+		if (node.tagHub) return tagColor(node.tags[0] ?? node.name);
 		for (const g of parsed) {
 			if (g.prefix !== null ? node.id.startsWith(g.prefix) : node.id.includes(g.raw)) return g.color;
 		}
@@ -24,7 +25,12 @@ export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
 	};
 }
 
-export const fallbackColorFn: NodeColorFn = (node) => folderColor(node.folderTop, node.unresolved);
+export const fallbackColorFn: NodeColorFn = (node) => (node.tagHub ? tagColor(node.tags[0] ?? node.name) : folderColor(node.folderTop, node.unresolved));
+
+export const tagColorFn: NodeColorFn = (node) => {
+	const tag = node.tags[0];
+	return tag ? tagColor(tag) : fallbackColorFn(node);
+};
 
 // Obsidian 标准色族 hsl(h, 60%, 60%) 的色相轮（与 Rick 的 9 组配色同族）；
 // M2 接 graph.json 真实 colorGroups，本表是无配置时的回退
@@ -34,6 +40,7 @@ const NEUTRAL = new Color('#9aa4b2'); // 未分组
 const UNRESOLVED = new Color('#7a8499'); // 幽灵
 
 const cache = new Map<string, Color>();
+const tagCache = new Map<string, Color>();
 
 export function folderColor(folderTop: string, unresolved: boolean): Color {
 	if (unresolved) return UNRESOLVED;
@@ -43,6 +50,16 @@ export function folderColor(folderTop: string, unresolved: boolean): Color {
 		const hue = HUES[hash32(folderTop) % HUES.length] ?? 0;
 		c = new Color().setHSL(hue / 360, 0.6, 0.6);
 		cache.set(folderTop, c);
+	}
+	return c;
+}
+
+export function tagColor(tag: string): Color {
+	let c = tagCache.get(tag);
+	if (!c) {
+		const hue = HUES[hash32(tag) % HUES.length] ?? 0;
+		c = new Color().setHSL(hue / 360, 0.68, 0.62);
+		tagCache.set(tag, c);
 	}
 	return c;
 }

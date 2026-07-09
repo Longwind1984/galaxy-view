@@ -39,6 +39,10 @@ export interface GalaxySettings {
 	showOrphans: boolean;
 	/** 深空星空背景开关（用户选项） */
 	showStarfield: boolean;
+	tagLens: string | null;
+	colorByTag: boolean;
+	showTagHubs: boolean;
+	tagHubLimit: number;
 	colorTheme: string;
 	qualityOverride: 'auto' | 'high' | 'low' | 'mobile'; // mobile 档在桌面=移动模拟 // 最近应用的配色主题 id；'imported'=二维导入，'custom'=洗牌后
 	preset: VisualPreset;
@@ -74,6 +78,10 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	showUnresolved: false,
 	showOrphans: true,
 	showStarfield: true,
+	tagLens: null,
+	colorByTag: false,
+	showTagHubs: false,
+	tagHubLimit: 20,
 	colorTheme: 'imported',
 	qualityOverride: 'auto',
 	preset: 'deep-space',
@@ -95,6 +103,10 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 	const sv = (saved ?? {}) as Partial<Record<keyof GalaxySettings, unknown>> & {
 		cruise?: unknown;
 		showUnresolved?: unknown;
+		tagLens?: unknown;
+		colorByTag?: unknown;
+		showTagHubs?: unknown;
+		tagHubLimit?: unknown;
 		preset?: unknown;
 		colorGroups?: unknown[];
 		positionCache?: unknown;
@@ -131,6 +143,10 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 				? ((sv as Record<string, unknown>)['showOrphans'] as boolean)
 				: d.showOrphans,
 		showStarfield: typeof sv.showStarfield === 'boolean' ? sv.showStarfield : d.showStarfield,
+		tagLens: typeof sv.tagLens === 'string' ? sv.tagLens : d.tagLens,
+		colorByTag: typeof sv.colorByTag === 'boolean' ? sv.colorByTag : d.colorByTag,
+		showTagHubs: typeof sv.showTagHubs === 'boolean' ? sv.showTagHubs : d.showTagHubs,
+		tagHubLimit: Math.min(Math.max(num(sv.tagHubLimit, d.tagHubLimit), 5), 50),
 		colorTheme:
 			typeof (sv as Record<string, unknown>)['colorTheme'] === 'string'
 				? ((sv as Record<string, unknown>)['colorTheme'] as string)

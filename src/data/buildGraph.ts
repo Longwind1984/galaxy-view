@@ -1,4 +1,5 @@
 import type { GraphData, GraphLink, GraphNode } from '../types';
+import { topTags } from './tags';
 
 
 /** 输入用纯记录，不依赖 obsidian —— 可单测（设计要求） */
@@ -6,6 +7,7 @@ export interface FileRecord {
 	path: string;
 	basename: string;
 	size?: number; // 字节
+	tags?: string[];
 }
 
 export type LinkTable = Record<string, Record<string, number>>;
@@ -17,6 +19,8 @@ export interface BuildOptions {
 	nodeCap?: number | null;
 	/** 移动档：按 min(端点度数) 取 top N 边，null=不限 */
 	linkCap?: number | null;
+	/** 可选：把 top N 标签加入为星云 hub 节点，null/0=关闭 */
+	tagHubLimit?: number | null;
 }
 
 function topFolder(path: string): string {
@@ -49,6 +53,8 @@ export function buildGraph(
 			inDegree: 0,
 			outDegree: 0,
 			fileSize: f.size ?? 0,
+			tags: f.tags ?? [],
+			tagHub: false,
 			unresolved: false,
 		});
 	}
@@ -98,10 +104,46 @@ export function buildGraph(
 						inDegree: 0,
 						outDegree: 0,
 						fileSize: 0,
+						tags: [],
+						tagHub: false,
 						unresolved: true,
 					});
 				}
 				addLink(si, gi);
+			}
+		}
+	}
+
+	const tagHubLimit = opts.tagHubLimit ?? null;
+	if (tagHubLimit !== null && tagHubLimit > 0) {
+		const stats = topTags(nodes, tagHubLimit);
+		const keep = new Set(stats.map((s) => s.tag));
+		const hubByTag = new Map<string, number>();
+		for (const { tag } of stats) {
+			const id = `tag:${tag}`;
+			const hi = nodes.length;
+			indexById.set(id, hi);
+			hubByTag.set(tag, hi);
+			nodes.push({
+				id,
+				name: tag,
+				folderTop: '__tag__',
+				degree: 0,
+				inDegree: 0,
+				outDegree: 0,
+				fileSize: 0,
+				tags: [tag],
+				tagHub: true,
+				unresolved: false,
+			});
+		}
+		for (let i = 0; i < nodes.length; i++) {
+			const node = nodes[i];
+			if (!node || node.tagHub || node.unresolved) continue;
+			for (const tag of new Set(node.tags)) {
+				if (!keep.has(tag)) continue;
+				const hi = hubByTag.get(tag);
+				if (hi !== undefined) addLink(i, hi);
 			}
 		}
 	}

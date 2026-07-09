@@ -14,6 +14,7 @@ Your notes become a galaxy: luminous nodes colored by your graph groups, thin de
 - **Style & color presets** — eight hand-drawn bundles (Galaxy, Spiral, Orbits, Deep Field, Nebula, Minimal, Fireworks, Supernova) that differ across starfield, palette, node size, physics, and bloom; hover to preview live, click to apply. Save your own presets (reorder / delete), plus color themes (Hubble deep field, neon, sunset film, cyberpunk, Matrix, aurora) or import the color groups from your core 2D graph.
 - **Guided navigation** — **Wander**, a hands-off cinematic auto-tour that drifts between your notable and long-unseen notes, and **Connect two**, which flies the shortest link path between any two notes.
 - **Focus mode** — selecting a note dims everything but its neighborhood (optionally out to the 2nd degree), highlights its links at full saturation, and shows a draggable, collapsible card with backlinks, tags, and a snippet.
+- **Tag Lens & nebula** — click any tag chip to dim the rest of the galaxy, highlight matching notes and links, or turn on optional tag hubs that pull top tags into visible nebula nodes. A slider controls how many tag hubs appear.
 - **Bilingual UI** — English / 中文, auto-detecting your Obsidian language and switchable in the panel.
 - **Search & navigate** — fuzzy search flies you to any note; `WASD`/`Q`/`E` free flight; right-drag or ⌘-drag to pan; `F`/`R`/`ESC` shortcuts.
 - **Mobile aware** — automatic quality tier on phones (no postprocessing, top-1500 nodes by degree, bottom-sheet cards) keeps it smooth on iOS and Android.
@@ -30,6 +31,14 @@ Your notes become a galaxy: luminous nodes colored by your graph groups, thin de
 ## Usage
 
 Click the orbit icon in the ribbon, or run the command "Open galaxy view". The control panel (top-left) holds the preset picker plus collapsible sections for appearance, bloom, and physics, a navigation zone (auto-orbit, Wander, Connect two), and advanced options. Hover any slider and double-click to reset it; everything persists.
+
+Tags live in their own **Tags** section:
+
+- Click a tag chip to activate Tag Lens; click the active tag again to return to the full graph.
+- Toggle **Tag colors** to color notes by their first tag instead of folder / imported graph groups.
+- Toggle **Tag nebula** to add top tag hubs as visible galaxy nodes.
+- Use **Tag nebula nodes** to choose how many tag hubs to show (5–50).
+- Use **Reset tags** to clear Tag Lens and restore tag visualization defaults.
 
 ## Privacy
 

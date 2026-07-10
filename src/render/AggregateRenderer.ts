@@ -71,6 +71,7 @@ export class AggregateRenderer {
 	private data: GraphData = { nodes: [], links: [] };
 	private positions: Float32Array = new Float32Array(0);
 	private renderPositions: Float32Array = new Float32Array(0);
+	private fitWeights: Float32Array = new Float32Array(0);
 	private sizes: Float32Array = new Float32Array(0);
 	private dimCurrent: Float32Array = new Float32Array(0);
 	private dimTarget: Float32Array = new Float32Array(0);
@@ -136,7 +137,7 @@ export class AggregateRenderer {
 
 		// —— 节点 ——
 		this.renderPositions = new Float32Array(n * 3);
-		fitGraphPositions(positions, this.renderPositions, n, this.graphRadiusEstimate * GRAPH_FIT_RADIUS_FACTOR);
+		this.fitWeights = new Float32Array(n);
 		const ghost = new Float32Array(n);
 		this.sizes = new Float32Array(n);
 		this.dimCurrent = new Float32Array(n).fill(1);
@@ -145,8 +146,10 @@ export class AggregateRenderer {
 			const node = data.nodes[i];
 			if (!node) continue;
 			ghost[i] = node.unresolved ? 1 : 0;
+			this.fitWeights[i] = node.degree;
 			this.sizes[i] = this.computeSize(node);
 		}
+		fitGraphPositions(positions, this.renderPositions, n, this.graphRadiusEstimate * GRAPH_FIT_RADIUS_FACTOR, this.fitWeights);
 		this.nodeGeometry = new BufferGeometry();
 		this.nodeGeometry.setAttribute('position', new BufferAttribute(this.renderPositions, 3));
 		this.nodeGeometry.setAttribute('color', new BufferAttribute(new Float32Array(n * 3), 3));
@@ -326,12 +329,18 @@ export class AggregateRenderer {
 		linkColAttr.needsUpdate = true;
 	}
 
-	/** 布局热时每帧调用：先把网络居中/收进既有球壳，再按索引 gather 链接。 */
+	/** 布局热时每帧调用：先把链接密集的主体居中/收进既有球壳，再按索引 gather 链接。 */
 	updatePositions(): void {
 		if (!this.nodeGeometry || !this.linkGeometry) return;
 		const n = this.data.nodes.length;
 		const nodeAttr = this.nodeGeometry.getAttribute('position') as BufferAttribute;
-		fitGraphPositions(this.positions, this.renderPositions, n, this.graphRadiusEstimate * GRAPH_FIT_RADIUS_FACTOR);
+		fitGraphPositions(
+			this.positions,
+			this.renderPositions,
+			n,
+			this.graphRadiusEstimate * GRAPH_FIT_RADIUS_FACTOR,
+			this.fitWeights,
+		);
 		nodeAttr.needsUpdate = true;
 
 		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;

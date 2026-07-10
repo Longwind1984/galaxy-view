@@ -22,6 +22,18 @@ describe('fitGraphPositions', () => {
 		expect(Math.max(...radii)).toBeCloseTo(80, 4);
 	});
 
+	it('fits the linked body without letting an isolated outlier shrink it', () => {
+		const source = new Float32Array([-100, 0, 0, 100, 0, 0, 1000, 0, 0]);
+		const target = new Float32Array(source.length);
+		const transform = fitGraphPositions(source, target, 3, 80, new Float32Array([10, 10, 0]));
+
+		expect(transform.center).toEqual([0, 0, 0]);
+		expect(transform.scale).toBeCloseTo(0.8, 4);
+		expect(target[0]).toBeCloseTo(-80, 4);
+		expect(target[3]).toBeCloseTo(80, 4);
+		expect(target[6]).toBeCloseTo(800, 4);
+	});
+
 	it('handles an empty graph without producing invalid coordinates', () => {
 		const transform = fitGraphPositions([], new Float32Array(0), 0, 80);
 		expect(transform).toEqual({ center: [0, 0, 0], scale: 1, sourceRadius: 0 });

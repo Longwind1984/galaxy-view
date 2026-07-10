@@ -1,5 +1,5 @@
-/** 留在既有 6.5× 星空球壳内的显示半径；约 20% 内边距给节点光晕和透视。 */
-export const GRAPH_FIT_RADIUS_FACTOR = 5.2;
+/** 留在既有 6.5× 星空球壳内的显示半径；约 5% 内边距给节点光晕和透视。 */
+export const GRAPH_FIT_RADIUS_FACTOR = 6.2;
 
 export interface GraphDisplayTransform {
 	center: [number, number, number];

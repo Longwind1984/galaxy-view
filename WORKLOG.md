@@ -4,6 +4,80 @@
 
 ---
 
+## 2026-07-11 · 发布 0.4.0：曲线连线 + 体积星云 + 预设气质 + 预设改名（搭车 tag 节点 / ghost 幽灵边）
+
+### 做了什么
+把 v0.4 一整批视觉升级 + 交互打磨定稿并发布 **0.4.0**（版本从 0.2.2 直接跳到 0.4.0，对齐一路的「v0.4」代号；minAppVersion 不变 1.8.7）。Rick 逐项真机验收后拍板发布。本次发布**一次性带出三批交织在同一批文件里的改动**（git 层面无法干净拆分，Rick 确认一起发）：
+
+- **我这轮 v0.4（主线）**：
+  - **曲线连线**：二次贝塞尔、径向外拱（远离星系核），新滑杆「连线弯曲」0=直线。单 LineSegments、每边 K 段折线，主链接/选中高亮/创世动画三处共用 `linkCurves.ts`；段数按档 8/6/4，曲率 0 时退化单段=零回归。
+  - **深空背景四层**（星点天幕/星云/浮星/集群云雾），面板新增「深空背景」分区。**星云经历一次大重写**：初版 FBM 烘焙贴 BackSide 球壳 → Rick 反馈「像球面裹在半空、实体感强」→ 改为**体积 billboard 云片**（`NebulaDome` 现为 Points，6 云核成团、各不同深度、加色叠加、sizeAttenuation 视差、软高斯 shader，永远面向相机不露球）。半径从 ×6.9 收到 ×2.6 包裹住图。又按 Rick「太浓」反馈把 shader 强度/透明度系数压到 0.30/0.22。
+  - **预设气质拉开**：Rick 反馈「银河/旋臂太像」→ 旋臂改为极扁盘(flatten 0.75)+拉满旋臂力(spiral 0.095)+强聚核(coreGravity 0.22)+强弯连线(linkCurve 0.72)+更俯视(62°)，与银河明确区分。八预设各按气质给 linkCurve+space。
+  - **自定义预设改名 + 防丢**：⋯ 菜单（改名/上移/下移/删除，收进原生 Menu，替代原来挤在右上角的四个小按钮 + ✓✕ 二次确认）；改名走内联输入框；**存/删/移/改名全部改为立即写盘**（`saveNow`，绕开 800ms 防抖——原来存完立刻退出会丢）。
+  - **文案精简**：删掉自定义预设卡每张都印的「你保存的参数」（零信息量）；内含 Rick 的长期原则「所有界面无效文案一律删」（已存记忆 ui-copy-restraint）。
+- **搭车发布（另一/另几个会话做的，本次一并发）**：
+  - **tag 作为节点**（`showTags`，默认关）：共享 tag 的笔记通过标签星成簇。
+  - **ghost 幽灵边**（`showGhostEdges`，**默认由 true 改为 false**）：读 Constellation 伴侣插件的 `ghost-edges.json` 显示虚线建议连线。
+
+### 关键决策与被否决的备选
+- **星云 CPU 逐帧曲线 gather 而非 GPU 坐标纹理**；**体积 billboard 而非球壳/RTT 体积雾**（球壳被 Rick 否了；raymarch 太贵违反性能纪律）。详见 nebula.ts / linkCurves.ts 头注释。
+- **ghost 幽灵边默认 true→false**（Rick 拍板）：ghost 依赖尚未正式发布的 Constellation 插件，默认开会让普通用户设置里出现悬空开关。改默认关 = 代码随 0.4.0 发布但不打扰用户，装了 Constellation 的可手动开，等 Constellation 发布再默认开。老用户存档无此字段 → 走新默认 false；已存 true 的（开发环境）保留。
+- **三批交织一起发而非拆分**：v0.4/tag/ghost 改动在 settings/AggregateRenderer/GraphController 等同文件里逐行交织，干净拆分风险高于价值；Rick 确认一起发。
+- **版本 0.4.0（跳过 0.3.0）**：对齐整个开发周期的 v0.4 代号，减少认知负担；semver minor 跳号合法。
+
+### 当前状态
+已发布 0.4.0（发布流程同 0.2.x：main 上 bump→commit→push→tag→release.yml CI 出三件套）。dev vault 即点即用：`npm run dev` → Obsidian 开 `dev-vault/`。
+
+### 未尽事项与已知问题
+- **ghost 幽灵边是「半个功能」**：依赖 Constellation 插件（见 [[constellation-plugin]]），Constellation 未发布前这个开关无数据源。tag/ghost **都默认关、都未进 README**（等成为默认体验再宣传）。
+- **审美数值仍是眼调起点**：八预设的 linkCurve/space、体积星云的云核数/强度系数、旋臂 spiral 0.095（接近上限）——Rick 已过一轮，后续可能再微调。
+- **性能基准未复跑**：新增体积云/曲线 gather/浮星/ghost 层的 S1(环绕 fps)/S4(泄漏) 未在真机重测；对象已全进 dispose 合同但无实测数字。
+- tag/ghost 功能的正确性由其原会话/Rick 背书，本会话只保证三批合并后 tsc/lint/test/build 全绿、不互相破坏。
+
+### 文件级变更清单
+- 新增：`src/render/linkCurves.ts`、`src/render/nebula.ts`、`src/settings/ghostEdgeImport.ts`（ghost，另一会话）、`tests/{linkCurves,settingsMerge}.test.ts`
+- 版本：`manifest.json`/`package.json` 0.2.2→0.4.0、`versions.json` +`"0.4.0":"1.8.7"`
+- 我的改动：`AggregateRenderer`(链接可重建几何+背景层管理+体积星云)、`starfield`(+浮星)、`stylePresets`(八预设+linkCurve/space+旋臂气质)、`presets`(tokens+space)、`settings`(linkCurve/space/merge 兼容)、`quality/tiers`(+linkSegments/clusterCloudsAllowed)、`GraphController`(设置传导/预设/改名+立即保存)、`overlay/ControlPanel`(深空背景分区/连线弯曲滑杆/⋯菜单/内联改名)、`i18n×6`(+space/rename/more 键)、`styles.css`、`README×2`(v0.4 视觉+六语)
+- 搭车改动（另一会话）：`types`/`data/{buildGraph,GraphStore}`(tag 节点)、`settings`(showTags/showGhostEdges)、`SettingsTab`、`render/shaders`(ghost 虚线)、`OverlayManager`、`render/palette`、`tests/{adjacency,buildGraph}`(tag fixture)
+
+---
+
+## 2026-07-09 · v0.4 工作流：曲线连线 + 深空背景四层形态（NASA Eyes 参考图复刻）
+
+### 做了什么
+Rick 给了一张 NASA Eyes 风格参考图，拍板两大特性 + 一个发散扩充，本次全部落地（构建/测试/lint 全绿，待真机眼验）：
+
+- **曲线连线**：连线可弯成远离星系核的二次贝塞尔弧（新滑杆「连线弯曲」，0=直线）。每边 K 段折线仍走同一个 LineSegments（1 draw call）；主链接层 / 选中高亮层 / 创世动画三处共用同一填充函数（`linkCurves.ts`），弧线严格重合。段数按质量档：high 8 / low 6 / mobile 4；曲率 0 时几何退化为单段＝与旧直线渲染完全等价（零回归）。
+- **深空背景拆成四层可叠加形态**（Rick 的扩充：默认给一种组合，其余用户自定义）：
+  - 星点天幕（原有球壳星点，开关不变）；
+  - **星云天幕**：FBM 值噪声一次性烘焙成 equirect 纹理贴 BackSide 球（实测 512×256 烘焙 6.5ms），强度滑杆只调透明度（零重烘焙），换配色主题才重烘焙（染色取主题前两组色压暗去饱和）；两极渐隐规避贴球挤压；亮度钳在 bloom 阈值下防光污染；
+  - **空间浮星**：≤1200 点散布图体积内外，sizeAttenuation 近大远小 + 反向慢转 = 视差层（参考图里「零星小星星」的对应物）；
+  - **集群云雾**：度数 top 节点做种子、贪心间距取 ≤10 簇，每簇 3 个软高斯加色 sprite（1 draw call，shader 带点大小钳制防填充率打爆），颜色 = 簇内节点均色提饱和——参考图里「云雾缭绕」的主体。只在布局沉降时刻重算，巡航期零成本。
+- **预设气质整合**（Rick 原则：贴合各预设气质、拉开区分度；默认仍为银河，看后再调）：银河克制（曲0.35/云0.35）、旋臂流动（曲0.55）、轨道大弧净空（曲0.75/几乎无云）、深空场直线+浮星海（曲0/浮星0.65）、星云满云雾（天幕0.8/云雾0.7）、极简全关、烟火纯黑底（曲0.2）、超新星暖尘余晖（曲0.3/云0.45）。
+- 面板新增「深空背景」分区（3 滑杆 + 星点开关移入，带「由 X 设定/已自定义/还原」标记）；i18n 六语补 5 键；README 双语更新（顺手把过时的「双语界面」改为六语）。
+
+### 关键决策与被否决的备选
+- **曲线用 CPU 逐帧 gather 而非 GPU 坐标纹理**：GPU 方案（节点坐标传 DataTexture、顶点着色器算贝塞尔）每帧成本 O(n) 更优，但布局热窗口只有 ~5s，CPU 方案实测预估 19,337 边 ×8 段 ≈ 每帧 93 万次 float 写（~2-4ms），沉降后归零；按「第二个真实用例出现前不引抽象」砍掉 GPU 路线，记录在 `linkCurves.ts` 头注释。
+- **星云天幕烘焙在 CPU（DataTexture）而非 GPU RTT**：云是低频信号，512×256 CPU 烘焙 6.5ms 足够；避免动 EffectComposer / 渲染目标生命周期。强度=透明度这一招让滑杆零重烘焙。
+- **老自定义预设缺新字段按 0 补齐**（而非新默认值）：保持用户存档当时的直线/无背景观感；内置预设才吃新值。
+- **悬停预览不重烘焙星云**（染色沿用已烘焙纹理，点击提交才换色）：避免每次 hover 6ms+ 的额外抖动。
+
+### 当前状态
+`npm run build`（tsc+esbuild）、`npm run lint`（0 error）、`npm test`（34/34，含新增 linkCurves 7 例 + settingsMerge 4 例）全绿。dev vault 即点即用：`npm run dev` → Obsidian 打开 `dev-vault/`。
+
+### 未尽事项与已知问题
+- **待 Rick 真机眼验**：①八预设新气质值全部是起点值，逐个悬停预览看区分度；②曲线弓高 CURVE_BOW=0.32 与弯曲方向（径向外拱）是否顺眼；③星云亮度是否压住了 bloom（尤其「星云」预设 0.8 强度 + tiktok 主题）；④集群云雾在真库 3,230n 上的簇分布是否合理。
+- **性能基准未复跑**：S1（沉降后 20s 环绕）与 S4（泄漏金丝雀）需在真机 Obsidian 里跑（面板「高级」区 S1/S2/S3 按钮，dev 构建）；新增对象已全部进 dispose 合同，但 S4 实测数字还没有。布局热窗口的曲线 gather 开销（预估 2-4ms/帧）也待 S2 复跑确认。
+- 星云天幕纹理为确定性噪声（固定 seed）：所有用户的云形一样，只有染色不同——可未来加 seed 洗牌按钮。
+- Obsidian 设置页（SettingsTab）未加新滑杆（浮动面板已覆盖全部调节），维持「耐久偏好在设置页、实时微调在面板」的既有分工。
+- 会话期间并行改动（tags-as-nodes：`types.ts`/`buildGraph.ts`/`GraphStore.ts` 的 `showTags`）不属于本工作流；顺手补了两处它落下的编译尾巴（adjacency 测试 fixture 加 `tag:false`、GraphController 传第三参 `showTags`），未动其设计。
+
+### 文件级变更清单
+- 新增：`src/render/linkCurves.ts`（贝塞尔填充纯函数）、`src/render/nebula.ts`（NebulaDome + ClusterClouds）、`tests/linkCurves.test.ts`、`tests/settingsMerge.test.ts`
+- 修改：`src/render/AggregateRenderer.ts`（链接层可重建几何、背景层管理 setSpace/syncSpace/setNebulaTint/refreshClusterClouds、dispose 合同扩充）、`src/render/starfield.ts`（+buildFieldStars）、`src/render/stylePresets.ts`（八预设 +linkCurve/space）、`src/render/presets.ts`（tokens +space 总闸）、`src/settings.ts`（LookSettings.linkCurve、SpaceSettings、merge 兼容）、`src/quality/tiers.ts`（+linkSegments/nebulaTexSize/clusterCloudsAllowed）、`src/view/GraphController.ts`（设置传导/预设应用/预览/分区还原/沉降钩子/星云染色同步）、`src/overlay/ControlPanel.ts`（深空背景分区、连线弯曲滑杆、分区标记扩展）、`src/i18n/{en,zh,de,it,es,pt}.ts`（+5 键）、`README.md`/`README.zh.md`、`tests/adjacency.test.ts`（并行改动的 fixture 补齐）
+
+---
+
 ## 2026-07-07 · 发布 0.2.2：弹窗黑屏修复 + 六语界面 + 新语言切换器
 
 ### 做了什么

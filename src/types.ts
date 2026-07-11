@@ -1,12 +1,13 @@
 export interface GraphNode {
-	id: string; // vault path；未解析为 "unresolved:<名字>"
+	id: string; // vault path；未解析为 "unresolved:<名字>"；标签为 "tag:#<名字>"
 	name: string;
-	folderTop: string; // 顶层文件夹；根目录 ''；未解析 '__unresolved__'
+	folderTop: string; // 顶层文件夹；根目录 ''；未解析 '__unresolved__'；标签 '__tag__'
 	degree: number; // 出 + 入
 	inDegree: number;
 	outDegree: number;
-	fileSize: number; // 字节；未解析为 0（「质量」可选依据）
+	fileSize: number; // 字节；未解析/标签为 0（「质量」可选依据）
 	unresolved: boolean;
+	tag: boolean; // true=标签合成节点（非文件），与 unresolved 并列的判别位
 }
 
 /** 边用节点数组下标表示——聚合渲染按索引 gather 坐标 */

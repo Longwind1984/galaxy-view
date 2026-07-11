@@ -19,8 +19,16 @@ export type SizeBy = 'degree' | 'fileSize' | 'uniform';
 export interface LookSettings {
 	nodeSize: number; // 倍率
 	linkOpacity: number;
+	linkCurve: number; // 连线弯曲 0–1（0=直线，几何退化为单段，与旧行为等价）
 	twinkle: number; // 亮星眨眼频率（0=关）
 	sizeBy: SizeBy; // 节点「质量」依据
+}
+
+/** 深空背景形态层（v0.4）：三层各自独立开关（0=关），预设给组合，用户可逐层自定义 */
+export interface SpaceSettings {
+	nebula: number; // 星云天幕强度 0–1（一次性烘焙纹理，强度只调透明度）
+	fieldStars: number; // 空间浮星密度 0–1（体积内散布，近大远小视差）
+	clusterClouds: number; // 集群云雾强度 0–1（稠密星团上的彩色云团）
 }
 
 export type VisualPreset = 'deep-space' | 'adaptive';
@@ -33,10 +41,15 @@ export interface GalaxySettings {
 	bloom: BloomSettings;
 	physics: PhysicsSettings;
 	look: LookSettings;
+	space: SpaceSettings;
 	cruise: boolean;
 	cruiseSpeed: number; // 巡航角速度倍率
 	showUnresolved: boolean;
 	showOrphans: boolean;
+	/** 标签作为节点：共享 tag 的笔记通过标签星成簇 */
+	showTags: boolean;
+	/** 幽灵边：Constellation 伴侣插件的待确认链接建议（虚线；接受后自动变实线） */
+	showGhostEdges: boolean;
 	/** 深空星空背景开关（用户选项） */
 	showStarfield: boolean;
 	colorTheme: string;
@@ -68,11 +81,15 @@ export interface GalaxySettings {
 export const DEFAULT_SETTINGS: GalaxySettings = {
 	bloom: { strength: 0.35, radius: 0.35, threshold: 0.22 },
 	physics: { repel: 170, linkDistance: 55, linkStrength: 1.1, centerPull: 0.05, flatten: 0.55, coreGravity: 0.1, spiral: 0.02 },
-	look: { nodeSize: 1, linkOpacity: 0.14, twinkle: 0.5, sizeBy: 'degree' },
+	look: { nodeSize: 1, linkOpacity: 0.14, linkCurve: 0.35, twinkle: 0.5, sizeBy: 'degree' },
+	space: { nebula: 0.35, fieldStars: 0.25, clusterClouds: 0.3 },
 	cruise: true,
 	cruiseSpeed: 1,
 	showUnresolved: false,
 	showOrphans: true,
+	showTags: false,
+	// 默认关：ghost 幽灵边依赖 Constellation 伴侣插件（尚未正式发布），随 0.4.0 发布但先不打扰普通用户
+	showGhostEdges: false,
 	showStarfield: true,
 	colorTheme: 'imported',
 	qualityOverride: 'auto',
@@ -118,10 +135,16 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 		look: {
 			nodeSize: num(s.look?.['nodeSize'], d.look.nodeSize),
 			linkOpacity: num(s.look?.['linkOpacity'], d.look.linkOpacity),
+			linkCurve: num(s.look?.['linkCurve'], d.look.linkCurve),
 			twinkle: num(s.look?.['twinkle'], d.look.twinkle),
 			sizeBy: (['degree', 'fileSize', 'uniform'] as const).includes(s.look?.['sizeBy'] as SizeBy)
 				? (s.look?.['sizeBy'] as SizeBy)
 				: d.look.sizeBy,
+		},
+		space: {
+			nebula: num(s.space?.['nebula'], d.space.nebula),
+			fieldStars: num(s.space?.['fieldStars'], d.space.fieldStars),
+			clusterClouds: num(s.space?.['clusterClouds'], d.space.clusterClouds),
 		},
 		cruise: typeof sv.cruise === 'boolean' ? sv.cruise : d.cruise,
 		cruiseSpeed: num((sv as Record<string, unknown>)['cruiseSpeed'], d.cruiseSpeed),
@@ -130,6 +153,14 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 			typeof (sv as Record<string, unknown>)['showOrphans'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showOrphans'] as boolean)
 				: d.showOrphans,
+		showTags:
+			typeof (sv as Record<string, unknown>)['showTags'] === 'boolean'
+				? ((sv as Record<string, unknown>)['showTags'] as boolean)
+				: d.showTags,
+		showGhostEdges:
+			typeof (sv as Record<string, unknown>)['showGhostEdges'] === 'boolean'
+				? ((sv as Record<string, unknown>)['showGhostEdges'] as boolean)
+				: d.showGhostEdges,
 		showStarfield: typeof sv.showStarfield === 'boolean' ? sv.showStarfield : d.showStarfield,
 		colorTheme:
 			typeof (sv as Record<string, unknown>)['colorTheme'] === 'string'
@@ -143,10 +174,21 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 		preset: sv.preset === 'adaptive' ? 'adaptive' : 'deep-space',
 		activePreset: typeof sv.activePreset === 'string' ? sv.activePreset : d.activePreset,
 		customPresets: Array.isArray(sv.customPresets)
-			? (sv.customPresets as unknown[]).filter(
-					(p): p is import('./render/stylePresets').StylePreset =>
-						!!p && typeof (p as { id?: unknown }).id === 'string' && typeof (p as { physics?: unknown }).physics === 'object' && typeof (p as { bloom?: unknown }).bloom === 'object' && typeof (p as { look?: unknown }).look === 'object',
-				)
+			? (sv.customPresets as unknown[])
+					.filter(
+						(p): p is import('./render/stylePresets').StylePreset =>
+							!!p && typeof (p as { id?: unknown }).id === 'string' && typeof (p as { physics?: unknown }).physics === 'object' && typeof (p as { bloom?: unknown }).bloom === 'object' && typeof (p as { look?: unknown }).look === 'object',
+					)
+					// v0.4 前存的预设没有 linkCurve/space：按 0 补齐 = 保持存档当时的直线/无背景观感
+					.map((p) => ({
+						...p,
+						look: { ...p.look, linkCurve: num((p.look as { linkCurve?: unknown }).linkCurve, 0) },
+						space: {
+							nebula: num((p.space as { nebula?: unknown } | undefined)?.nebula, 0),
+							fieldStars: num((p.space as { fieldStars?: unknown } | undefined)?.fieldStars, 0),
+							clusterClouds: num((p.space as { clusterClouds?: unknown } | undefined)?.clusterClouds, 0),
+						},
+					}))
 			: [],
 		language: (['auto', 'en', 'zh', 'de', 'it', 'es', 'pt'] as const).includes(sv.language as 'auto')
 			? (sv.language as import('./i18n').LangPref)

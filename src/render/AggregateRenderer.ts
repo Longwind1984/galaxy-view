@@ -5,6 +5,7 @@ import {
 	Color,
 	Group,
 	LineBasicMaterial,
+	LineDashedMaterial,
 	LineSegments,
 	NoToneMapping,
 	PerspectiveCamera,
@@ -21,11 +22,14 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphData } from '../types';
+import type { SpaceSettings } from '../settings';
 import { BLOOM_DEFAULTS, NODE_BASE_RADIUS, NODE_MAX_RADIUS, STARFIELD_ROTATION_RAD_PER_S } from '../constants';
 import { NODE_FRAGMENT_SHADER, NODE_VERTEX_SHADER } from './shaders';
 import { linkColor, fallbackColorFn } from './palette';
 import type { NodeColorFn } from './palette';
-import { buildStarfield, disposeStarfield, Twinkler } from './starfield';
+import { buildFieldStars, buildStarfield, disposeStarfield, Twinkler } from './starfield';
+import { fillLinkPositions, segsFor } from './linkCurves';
+import { ClusterClouds, NebulaDome } from './nebula';
 import type { VisualTokens } from './presets';
 import type { QualityTier } from '../quality/tiers';
 import { DEEP_SPACE } from './presets';
@@ -56,7 +60,13 @@ export class AggregateRenderer {
 	private selSegments: LineSegments | null = null;
 	private selGeometry: BufferGeometry | null = null;
 	private selMaterial: LineBasicMaterial | null = null;
+	// —— 幽灵边（Constellation 待定建议，虚线暗层；不参与布局/邻接/拾取）——
+	private ghostSegments: LineSegments | null = null;
+	private ghostGeometry: BufferGeometry | null = null;
+	private ghostMaterial: LineDashedMaterial | null = null;
+	private ghostLinks: { source: number; target: number; score: number }[] = [];
 	private selLinkIdx: number[] = []; // 合并 tier1+tier2，updateSelPositions 用
+	private selLinks: ({ source: number; target: number } | undefined)[] = []; // 高亮边子集（曲线填充用）
 	private selTier1: number[] = [];
 	private selTier2: number[] = [];
 	private starfield: Group;
@@ -64,6 +74,20 @@ export class AggregateRenderer {
 	private starfieldEnabled = true;
 	twinkleFreq = 0.5;
 	private motes: Points | null = null;
+	// —— 曲线连线（v0.4）——
+	private linkCurvature = 0;
+	private tierLinkSegs = 8;
+	private linkK = 1; // 当前链接几何的每边段数（曲率 0 时恒 1 = 旧直线路径）
+	// —— 深空背景形态层（v0.4）——
+	private space: SpaceSettings = { nebula: 0, fieldStars: 0, clusterClouds: 0 };
+	private nebula: NebulaDome | null = null;
+	private clouds: ClusterClouds | null = null;
+	private fieldStars: Points<BufferGeometry, PointsMaterial> | null = null;
+	private fieldStarsDensity = 0; // 已构建的密度（含 tier 缩放触发的强制重建 -1）
+	private nebulaTintA = '#46d4dc';
+	private nebulaTintB = '#9a7fe0';
+	private tierCloudsAllowed = true;
+	private tierStarScale = 1;
 	private reveal: { t0: number; durMs: number; maxR: number } | null = null;
 	private revealBuf: Float32Array = new Float32Array(0);
 
@@ -130,7 +154,6 @@ export class AggregateRenderer {
 		this.disposeGraphObjects();
 
 		const n = data.nodes.length;
-		const m = data.links.length;
 
 		// —— 节点 ——
 		const nodePos = new Float32Array(n * 3);
@@ -169,10 +192,27 @@ export class AggregateRenderer {
 		this.nodePoints.frustumCulled = false;
 		this.scene.add(this.nodePoints);
 
-		// —— 链接 ——
+		// —— 链接 ——（曲线：每边 K 段折线；K=1 = 与旧直线渲染完全等价）
+		this.buildLinkLayer();
+		this.clouds?.clear(); // 数据重建后簇成员索引失效，等下次沉降重算
+
+		this.recolor();
+		this.updatePositions();
+		this.buildSelLayer(); // 数据重建后恢复高亮层
+	}
+
+	/** 链接层几何按当前 K（曲率/档位）分配；曲率 0↔>0 或档位变化时重建（毫秒级一次性） */
+	private buildLinkLayer(): void {
+		if (this.linkSegments) {
+			this.scene.remove(this.linkSegments);
+			this.linkGeometry?.dispose();
+			this.linkMaterial?.dispose();
+		}
+		const m = this.data.links.length;
+		this.linkK = segsFor(this.linkCurvature, this.tierLinkSegs);
 		this.linkGeometry = new BufferGeometry();
-		this.linkGeometry.setAttribute('position', new BufferAttribute(new Float32Array(m * 2 * 3), 3));
-		this.linkGeometry.setAttribute('color', new BufferAttribute(new Float32Array(m * 2 * 3), 3));
+		this.linkGeometry.setAttribute('position', new BufferAttribute(new Float32Array(m * this.linkK * 2 * 3), 3));
+		this.linkGeometry.setAttribute('color', new BufferAttribute(new Float32Array(m * this.linkK * 2 * 3), 3));
 		this.linkMaterial = new LineBasicMaterial({
 			vertexColors: true,
 			transparent: true,
@@ -183,10 +223,80 @@ export class AggregateRenderer {
 		this.linkSegments.renderOrder = 0;
 		this.linkSegments.frustumCulled = false;
 		this.scene.add(this.linkSegments);
+	}
 
-		this.recolor();
-		this.updatePositions();
-		this.buildSelLayer(); // 数据重建后恢复高亮层
+	/** 幽灵边数据（节点下标 + 强度 0..1）；空数组 = 移除该层 */
+	setGhostLinks(links: { source: number; target: number; score: number }[]): void {
+		this.ghostLinks = links;
+		this.buildGhostLayer();
+	}
+
+	private buildGhostLayer(): void {
+		if (this.ghostSegments) {
+			this.scene.remove(this.ghostSegments);
+			this.ghostGeometry?.dispose();
+			this.ghostMaterial?.dispose();
+			this.ghostSegments = null;
+			this.ghostGeometry = null;
+			this.ghostMaterial = null;
+		}
+		const m = this.ghostLinks.length;
+		if (m === 0) return;
+		this.ghostGeometry = new BufferGeometry();
+		this.ghostGeometry.setAttribute('position', new BufferAttribute(new Float32Array(m * 2 * 3), 3));
+		const colors = new Float32Array(m * 2 * 3);
+		const base = this.tokens.lightMode ? 0.35 : 0.8; // 亮色主题用深灰，深空用亮灰
+		for (let i = 0; i < m; i++) {
+			const s = this.ghostLinks[i]?.score ?? 0.5;
+			const v = base * (0.45 + 0.55 * s); // score 映射亮度（deferred 已在数据侧 ×0.6）
+			for (let k = 0; k < 2; k++) {
+				colors[(i * 2 + k) * 3] = v;
+				colors[(i * 2 + k) * 3 + 1] = v;
+				colors[(i * 2 + k) * 3 + 2] = v * 1.08; // 微偏蓝，与实线区分气质
+			}
+		}
+		this.ghostGeometry.setAttribute('color', new BufferAttribute(colors, 3));
+		this.ghostMaterial = new LineDashedMaterial({
+			vertexColors: true,
+			transparent: true,
+			opacity: 0.22,
+			depthWrite: false,
+			dashSize: 2.6,
+			gapSize: 3.4,
+		});
+		this.ghostSegments = new LineSegments(this.ghostGeometry, this.ghostMaterial);
+		this.ghostSegments.renderOrder = 0;
+		this.ghostSegments.frustumCulled = false;
+		this.scene.add(this.ghostSegments);
+		this.updateGhostPositions();
+	}
+
+	private updateGhostPositions(): void {
+		if (!this.ghostGeometry || !this.ghostSegments) return;
+		const attr = this.ghostGeometry.getAttribute('position') as BufferAttribute;
+		const arr = attr.array as Float32Array;
+		const pos = this.positions;
+		for (let i = 0; i < this.ghostLinks.length; i++) {
+			const l = this.ghostLinks[i];
+			if (!l) continue;
+			for (let k = 0; k < 3; k++) {
+				arr[i * 6 + k] = pos[l.source * 3 + k] ?? 0;
+				arr[i * 6 + 3 + k] = pos[l.target * 3 + k] ?? 0;
+			}
+		}
+		attr.needsUpdate = true;
+		this.ghostSegments.computeLineDistances(); // 虚线段距离随坐标更新（≤500 边，纳秒级）
+	}
+
+	/** 连线弯曲 0–1（滑杆）；跨 0↔>0 时段数变化需重建几何+重染色，其余仅重填顶点 */
+	setLinkCurve(v: number): void {
+		this.linkCurvature = v;
+		if (segsFor(v, this.tierLinkSegs) !== this.linkK) {
+			this.buildLinkLayer();
+			this.recolor();
+			this.buildSelLayer();
+		}
+		if (!this.reveal) this.updatePositions(); // 创世动画期间由 stepReveal 下一帧接管
 	}
 
 	private sizeMode: 'degree' | 'fileSize' | 'uniform' = 'degree';
@@ -257,21 +367,7 @@ export class AggregateRenderer {
 		(nodeAttr.array as Float32Array).set(buf.subarray(0, n * 3));
 		nodeAttr.needsUpdate = true;
 		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;
-		const arr = linkAttr.array as Float32Array;
-		const links = this.data.links;
-		for (let li = 0; li < links.length; li++) {
-			const l = links[li];
-			if (!l) continue;
-			const sI = l.source * 3;
-			const tI = l.target * 3;
-			const o = li * 6;
-			arr[o] = buf[sI] ?? 0;
-			arr[o + 1] = buf[sI + 1] ?? 0;
-			arr[o + 2] = buf[sI + 2] ?? 0;
-			arr[o + 3] = buf[tI] ?? 0;
-			arr[o + 4] = buf[tI + 1] ?? 0;
-			arr[o + 5] = buf[tI + 2] ?? 0;
-		}
+		fillLinkPositions(linkAttr.array as Float32Array, buf, this.data.links, this.linkK, this.linkCurvature);
 		linkAttr.needsUpdate = true;
 		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity() * Math.min(p * 1.6, 1);
 	}
@@ -307,17 +403,23 @@ export class AggregateRenderer {
 		const linkCol = linkColAttr.array as Float32Array;
 		const ink = this.tokens.linkInk ? new Color(this.tokens.linkInk) : null;
 		const fallback = new Color('#7a87a8');
+		const vertsPerLink = this.linkK * 2;
 		for (let li = 0; li < this.data.links.length; li++) {
 			const l = this.data.links[li];
 			if (!l) continue;
 			const c = ink ?? linkColor(resolved[l.source] ?? fallback, resolved[l.target] ?? fallback);
-			for (const v of [0, 1]) {
-				linkCol[(li * 2 + v) * 3] = c.r;
-				linkCol[(li * 2 + v) * 3 + 1] = c.g;
-				linkCol[(li * 2 + v) * 3 + 2] = c.b;
+			for (let v = 0; v < vertsPerLink; v++) {
+				linkCol[(li * vertsPerLink + v) * 3] = c.r;
+				linkCol[(li * vertsPerLink + v) * 3 + 1] = c.g;
+				linkCol[(li * vertsPerLink + v) * 3 + 2] = c.b;
 			}
 		}
 		linkColAttr.needsUpdate = true;
+		// 集群云雾跟随节点色（换主题/聚焦重染时同步）
+		this.clouds?.recolor((i) => {
+			const nd = this.data.nodes[i];
+			return nd ? this.colorFn(nd) : fallback;
+		});
 	}
 
 	/** 布局热时每帧调用：节点直拷，链接按索引 gather */
@@ -329,24 +431,10 @@ export class AggregateRenderer {
 		nodeAttr.needsUpdate = true;
 
 		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;
-		const arr = linkAttr.array as Float32Array;
-		const pos = this.positions;
-		const links = this.data.links;
-		for (let li = 0; li < links.length; li++) {
-			const l = links[li];
-			if (!l) continue;
-			const s = l.source * 3;
-			const t = l.target * 3;
-			const o = li * 6;
-			arr[o] = pos[s] ?? 0;
-			arr[o + 1] = pos[s + 1] ?? 0;
-			arr[o + 2] = pos[s + 2] ?? 0;
-			arr[o + 3] = pos[t] ?? 0;
-			arr[o + 4] = pos[t + 1] ?? 0;
-			arr[o + 5] = pos[t + 2] ?? 0;
-		}
+		fillLinkPositions(linkAttr.array as Float32Array, this.positions, this.data.links, this.linkK, this.linkCurvature);
 		linkAttr.needsUpdate = true;
 		this.updateSelPositions();
+		this.updateGhostPositions();
 	}
 
 	// ---------- 聚焦与选中高亮 ----------
@@ -374,6 +462,7 @@ export class AggregateRenderer {
 
 	private buildSelLayer(): void {
 		this.selLinkIdx = [...this.selTier1, ...this.selTier2];
+		this.selLinks = this.selLinkIdx.map((i) => this.data.links[i]);
 		if (this.selSegments) {
 			this.scene.remove(this.selSegments);
 			this.selGeometry?.dispose();
@@ -385,8 +474,10 @@ export class AggregateRenderer {
 		const m = this.selLinkIdx.length;
 		if (m === 0) return;
 		const t1 = this.selTier1.length;
-		const pos = new Float32Array(m * 6);
-		const col = new Float32Array(m * 6);
+		const K = this.linkK; // 高亮层与主链接层同曲率同段数：弧线严格重合
+		const vertsPerLink = K * 2;
+		const pos = new Float32Array(m * vertsPerLink * 3);
+		const col = new Float32Array(m * vertsPerLink * 3);
 		const hsl = { h: 0, s: 0, l: 0 };
 		for (let k = 0; k < m; k++) {
 			const l = this.data.links[this.selLinkIdx[k] ?? -1];
@@ -399,10 +490,10 @@ export class AggregateRenderer {
 			const sat = isT2 ? hsl.s * 0.9 : Math.min(hsl.s * 1.2, 1);
 			c.setHSL(hsl.h, sat, light);
 			const dim = isT2 ? 0.55 : 1; // 二度进一步压暗，读作外层壳
-			for (const v of [0, 1]) {
-				col[k * 6 + v * 3] = c.r * dim;
-				col[k * 6 + v * 3 + 1] = c.g * dim;
-				col[k * 6 + v * 3 + 2] = c.b * dim;
+			for (let v = 0; v < vertsPerLink; v++) {
+				col[(k * vertsPerLink + v) * 3] = c.r * dim;
+				col[(k * vertsPerLink + v) * 3 + 1] = c.g * dim;
+				col[(k * vertsPerLink + v) * 3 + 2] = c.b * dim;
 			}
 		}
 		this.selGeometry = new BufferGeometry();
@@ -422,22 +513,9 @@ export class AggregateRenderer {
 	}
 
 	private updateSelPositions(): void {
-		if (!this.selGeometry || this.selLinkIdx.length === 0) return;
+		if (!this.selGeometry || this.selLinks.length === 0) return;
 		const attr = this.selGeometry.getAttribute('position') as BufferAttribute;
-		const arr = attr.array as Float32Array;
-		const pos = this.positions;
-		for (let k = 0; k < this.selLinkIdx.length; k++) {
-			const l = this.data.links[this.selLinkIdx[k] ?? -1];
-			if (!l) continue;
-			const s = l.source * 3;
-			const t = l.target * 3;
-			arr[k * 6] = pos[s] ?? 0;
-			arr[k * 6 + 1] = pos[s + 1] ?? 0;
-			arr[k * 6 + 2] = pos[s + 2] ?? 0;
-			arr[k * 6 + 3] = pos[t] ?? 0;
-			arr[k * 6 + 4] = pos[t + 1] ?? 0;
-			arr[k * 6 + 5] = pos[t + 2] ?? 0;
-		}
+		fillLinkPositions(attr.array as Float32Array, this.positions, this.selLinks, this.linkK, this.linkCurvature);
 		attr.needsUpdate = true;
 	}
 
@@ -452,6 +530,7 @@ export class AggregateRenderer {
 		this.tokens = tokens;
 		this.scene.background = new Color(tokens.background);
 		this.starfield.visible = tokens.starfield && this.starfieldEnabled;
+		this.syncSpace(); // 晨昼强制关背景形态层
 		this.renderer.toneMapping = tokens.lightMode ? NoToneMapping : ACESFilmicToneMapping;
 		if (this.nodeMaterial) {
 			this.nodeMaterial.uniforms['uLightMode']!.value = tokens.lightMode ? 1 : 0;
@@ -466,6 +545,76 @@ export class AggregateRenderer {
 
 	get currentTokens(): VisualTokens {
 		return this.tokens;
+	}
+
+	// ---------- 深空背景形态层（v0.4：星云天幕 / 空间浮星 / 集群云雾） ----------
+
+	/** 三层各自独立开关（0=关）；实际可见性 = 滑杆 × tokens.space × 质量档 */
+	setSpace(space: SpaceSettings): void {
+		this.space = { ...space };
+		this.syncSpace();
+	}
+
+	private syncSpace(): void {
+		const allowed = this.tokens.space;
+		// 星云天幕：首次开启才建+烘焙（几十 ms 一次性）；此后强度只调透明度
+		const nebulaV = allowed ? this.space.nebula : 0;
+		if (nebulaV > 0.005 && !this.nebula) {
+			// 体积云半径 = 图半径 ×2.6：云团包裹住图、有近有远，而非贴在无穷远球壳
+			this.nebula = new NebulaDome(this.graphRadiusEstimate * 2.6);
+			this.nebula.setQuality(this.tierStarScale);
+			this.nebula.setPixelScale(this.pixelScale, 1600 * this.renderer.getPixelRatio());
+			this.nebula.bake(this.nebulaTintA, this.nebulaTintB);
+			this.scene.add(this.nebula.object);
+		}
+		this.nebula?.setIntensity(nebulaV);
+		// 空间浮星：密度/档位变化才重建（≤1200 点，毫秒级）
+		const density = allowed ? this.space.fieldStars : 0;
+		if (Math.abs(density - this.fieldStarsDensity) > 1e-3) {
+			this.disposeFieldStars();
+			if (density > 0.005) {
+				this.fieldStars = buildFieldStars(this.graphRadiusEstimate * 2.4, density, this.tierStarScale);
+				this.scene.add(this.fieldStars);
+			}
+			this.fieldStarsDensity = density;
+		}
+		// 集群云雾：mobile 档关（加色大精灵的填充率风险）
+		const cloudsV = allowed && this.tierCloudsAllowed ? this.space.clusterClouds : 0;
+		if (cloudsV > 0.005 && !this.clouds) {
+			this.clouds = new ClusterClouds();
+			this.clouds.setPixelScale(this.pixelScale, 300 * this.renderer.getPixelRatio());
+			this.scene.add(this.clouds.points);
+			this.refreshClusterClouds(); // 暖启动坐标已就位时立即出云；否则等沉降
+		}
+		this.clouds?.setIntensity(cloudsV);
+	}
+
+	/** 星云染色跟配色主题（前两组色）；换主题才重烘焙 */
+	setNebulaTint(hexA: string, hexB: string): void {
+		if (hexA === this.nebulaTintA && hexB === this.nebulaTintB) return;
+		this.nebulaTintA = hexA;
+		this.nebulaTintB = hexB;
+		this.nebula?.bake(hexA, hexB);
+	}
+
+	/** 布局沉降时刻由 GraphController 调用：重算簇质心/散布并重染 */
+	refreshClusterClouds(): void {
+		if (!this.clouds || this.data.nodes.length === 0) return;
+		this.clouds.rebuild(this.data, this.positions, this.graphRadiusEstimate);
+		const fallback = new Color('#7a87a8');
+		this.clouds.recolor((i) => {
+			const nd = this.data.nodes[i];
+			return nd ? this.colorFn(nd) : fallback;
+		});
+		this.clouds.setIntensity(this.tokens.space && this.tierCloudsAllowed ? this.space.clusterClouds : 0);
+	}
+
+	private disposeFieldStars(): void {
+		if (!this.fieldStars) return;
+		this.fieldStars.geometry.dispose();
+		this.fieldStars.material.dispose();
+		this.scene.remove(this.fieldStars);
+		this.fieldStars = null;
 	}
 
 	/** 晨昼模式的尘埃微粒：600 点、近大远小、缓慢漂移 */
@@ -498,6 +647,8 @@ export class AggregateRenderer {
 	render(deltaS: number): void {
 		this.starfield.rotation.y += STARFIELD_ROTATION_RAD_PER_S * deltaS;
 		if (this.starfield.visible) this.twinkler.update(deltaS, this.twinkleFreq);
+		if (this.nebula?.visible) this.nebula.update(deltaS);
+		if (this.fieldStars) this.fieldStars.rotation.y -= STARFIELD_ROTATION_RAD_PER_S * 0.6 * deltaS; // 反向慢转 = 视差
 		if (this.motes?.visible) this.motes.rotation.y -= STARFIELD_ROTATION_RAD_PER_S * 2 * deltaS;
 		if (this.dimAnimating) this.stepDim(deltaS);
 		if (this.reveal) this.stepReveal(performance.now());
@@ -543,7 +694,7 @@ export class AggregateRenderer {
 		this.bloomPass.enabled = this.tokens.bloomEnabled && this.tierBloomAllowed && v > 0.001;
 	}
 
-	/** 质量档位（M4）：pixelRatio / bloom 门控 / 星空密度，全部免重建即时生效 */
+	/** 质量档位（M4）：pixelRatio / bloom 门控 / 星空密度 / 曲线段数 / 背景层预算 */
 	applyTier(tier: QualityTier, bloomStrengthFromSettings: number): void {
 		this.tierBloomAllowed = tier.bloomAllowed;
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, tier.pixelRatioCap));
@@ -559,6 +710,25 @@ export class AggregateRenderer {
 		this.starfield.visible = visible;
 		this.starfield.rotation.y = rotation;
 		this.scene.add(this.starfield);
+		// 曲线段数换档：几何重建 + 重染 + 高亮层重建（一次性）
+		this.tierLinkSegs = tier.linkSegments;
+		if (this.linkGeometry && segsFor(this.linkCurvature, this.tierLinkSegs) !== this.linkK) {
+			this.buildLinkLayer();
+			this.recolor();
+			this.buildSelLayer();
+			this.updatePositions();
+		}
+		// 背景层预算：星云 sprite 密度 / 浮星密度缩放 / 云雾开关
+		this.tierCloudsAllowed = tier.clusterCloudsAllowed;
+		if (this.tierStarScale !== tier.starScale) {
+			this.tierStarScale = tier.starScale;
+			if (this.nebula) {
+				this.nebula.setQuality(tier.starScale);
+				this.nebula.bake(this.nebulaTintA, this.nebulaTintB); // 按新密度重生成云团
+			}
+		}
+		this.fieldStarsDensity = -1; // 强制按新档位缩放重建浮星
+		this.syncSpace();
 		this.resize(this.lastW, this.lastH); // pixelRatio 变化 → 重算 uPixelScale/uMaxPoint 与缓冲尺寸
 		const u = this.nodeMaterial?.uniforms['uMaxPoint'];
 		if (u) u.value = 110 * this.renderer.getPixelRatio();
@@ -594,6 +764,8 @@ export class AggregateRenderer {
 		this.pixelScale = physH / (2 * Math.tan(((this.camera.fov / 2) * Math.PI) / 180));
 		const u = this.nodeMaterial?.uniforms['uPixelScale'];
 		if (u) u.value = this.pixelScale;
+		this.clouds?.setPixelScale(this.pixelScale, 300 * this.renderer.getPixelRatio());
+		this.nebula?.setPixelScale(this.pixelScale, 1600 * this.renderer.getPixelRatio());
 	}
 
 	// ---------- 拾取与投影 ----------
@@ -656,6 +828,14 @@ export class AggregateRenderer {
 			this.selGeometry = null;
 			this.selMaterial = null;
 		}
+		if (this.ghostSegments) {
+			this.scene.remove(this.ghostSegments);
+			this.ghostGeometry?.dispose();
+			this.ghostMaterial?.dispose();
+			this.ghostSegments = null;
+			this.ghostGeometry = null;
+			this.ghostMaterial = null;
+		}
 		this.nodeGeometry?.dispose();
 		this.nodeMaterial?.dispose();
 		this.linkGeometry?.dispose();
@@ -673,6 +853,17 @@ export class AggregateRenderer {
 		this.disposeGraphObjects();
 		disposeStarfield(this.starfield);
 		this.scene.remove(this.starfield);
+		this.disposeFieldStars();
+		if (this.nebula) {
+			this.nebula.dispose();
+			this.scene.remove(this.nebula.object);
+			this.nebula = null;
+		}
+		if (this.clouds) {
+			this.clouds.dispose();
+			this.scene.remove(this.clouds.points);
+			this.clouds = null;
+		}
 		if (this.motes) {
 			this.motes.geometry.dispose();
 			(this.motes.material as PointsMaterial).dispose();

@@ -65,6 +65,8 @@ export class GraphController {
 	private onVisChange: (() => void) | null = null;
 	private disposeFns: (() => void)[] = [];
 	private saveSoon: () => void;
+	/** 结构性操作（存/删/移/改名预设）立即写盘，绕开 800ms 防抖——避免存完立刻退出丢失 */
+	private saveNow: () => void;
 	private tier: QualityTier = TIERS.high;
 	private autoLow = false; // auto 档当前是否降到 low（可双向）
 	private lowFpsChecks = 0;
@@ -80,6 +82,7 @@ export class GraphController {
 		saveSettings: () => void,
 	) {
 		this.store = new GraphStore(app);
+		this.saveNow = saveSettings;
 		this.saveSoon = debounce(saveSettings, 800, true);
 	}
 
@@ -89,7 +92,7 @@ export class GraphController {
 
 	async start(): Promise<void> {
 		await this.store.ensureCacheReady();
-		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, () => this.onDataChanged());
+		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, this.settings.showTags, () => this.onDataChanged());
 		this.store.rebuild(false);
 
 		// 暖启动：用上次沉降坐标覆盖种子 → 重开即成形
@@ -104,6 +107,7 @@ export class GraphController {
 			this.settings.colorGroups.length > 0 ? makeNodeColorFn(this.settings.colorGroups) : fallbackColorFn,
 		);
 		renderer.setData(this.store.data, this.store.positions);
+		renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.initLayout(warm ? 0.06 : 1);
 
 		this.director = new CameraDirector(renderer.camera, renderer.renderer.domElement, {
@@ -234,6 +238,7 @@ export class GraphController {
 	private checkSettled(): void {
 		const settled = this.layout.isSettled();
 		if (settled && !this.wasSettled) {
+			this.renderer?.refreshClusterClouds(); // 集群云雾按沉降后的坐标重算
 			// 沉降时刻：写暖启动缓存（坐标取整 1 位小数，控制 data.json 体积）
 			const cache: Record<string, [number, number, number]> = {};
 			const pos = this.store.positions;
@@ -292,6 +297,7 @@ export class GraphController {
 		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
 		this.clearSelection();
 		this.renderer.setData(this.store.data, this.store.positions);
+		this.renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.overlay?.setData(this.store.data, this.graphRadius);
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
 		this.initLayout(0.3);
@@ -383,8 +389,11 @@ export class GraphController {
 		this.renderer?.setBloomParams(s.bloom);
 		this.renderer?.setNodeScale(s.look.nodeSize);
 		this.renderer?.setLinkOpacity(s.look.linkOpacity);
+		this.renderer?.setLinkCurve(s.look.linkCurve);
 		this.renderer?.setSizeMode(s.look.sizeBy);
 		this.renderer?.setStarfieldEnabled(s.showStarfield);
+		this.syncNebulaTint();
+		this.renderer?.setSpace(s.space);
 		if (this.renderer) this.renderer.twinkleFreq = s.look.twinkle;
 		if (this.director) {
 			this.director.cruiseEnabled = s.cruise;
@@ -392,11 +401,20 @@ export class GraphController {
 		}
 	}
 
+	/** 星云天幕染色 = 当前配色前两组（无导入色时回退哈勃青/紫）；换主题/洗牌/导入后调用 */
+	private syncNebulaTint(): void {
+		const g = this.settings.colorGroups;
+		const a = g[0]?.color ?? '#46d4dc';
+		const b = g[1]?.color ?? g[0]?.color ?? '#9a7fe0';
+		this.renderer?.setNebulaTint(a, b);
+	}
+
 	/** 风格预设 = 辉光+力学+外观+星空+配色 成套切换（点击提交） */
 	applyStylePreset(p: StylePreset): void {
 		Object.assign(this.settings.bloom, p.bloom);
 		Object.assign(this.settings.physics, p.physics);
 		Object.assign(this.settings.look, p.look);
+		Object.assign(this.settings.space, p.space);
 		this.settings.showStarfield = p.starfield;
 		this.settings.activePreset = p.id;
 		this.applySettings(); // 含 setStarfieldEnabled
@@ -415,9 +433,11 @@ export class GraphController {
 		r.setBloomParams(p.bloom);
 		r.setNodeScale(p.look.nodeSize);
 		r.setLinkOpacity(p.look.linkOpacity);
+		r.setLinkCurve(p.look.linkCurve);
 		r.twinkleFreq = p.look.twinkle;
 		r.setSizeMode(p.look.sizeBy);
 		r.setStarfieldEnabled(p.starfield);
+		r.setSpace(p.space); // 星云染色沿用已烘焙纹理（悬停不重烘焙，点击提交才换色）
 		const theme = COLOR_THEMES.find((t) => t.id === p.theme);
 		if (theme && this.settings.colorGroups.length > 0) {
 			const temp = this.settings.colorGroups.map((g, i) => ({ ...g, color: theme.colors[i % theme.colors.length] ?? g.color }));
@@ -434,9 +454,11 @@ export class GraphController {
 		r.setBloomParams(s.bloom);
 		r.setNodeScale(s.look.nodeSize);
 		r.setLinkOpacity(s.look.linkOpacity);
+		r.setLinkCurve(s.look.linkCurve);
 		r.twinkleFreq = s.look.twinkle;
 		r.setSizeMode(s.look.sizeBy);
 		r.setStarfieldEnabled(s.showStarfield);
+		r.setSpace(s.space);
 		r.setColorFn(s.colorGroups.length > 0 ? makeNodeColorFn(s.colorGroups) : fallbackColorFn);
 		r.recolor();
 	}
@@ -452,6 +474,7 @@ export class GraphController {
 			name: t('mine.name', { n }),
 			nameEn: t('mine.name', { n }),
 			starfield: this.settings.showStarfield,
+			space: { ...this.settings.space },
 			theme: this.settings.colorTheme,
 			bloom: { ...this.settings.bloom },
 			physics: { ...this.settings.physics },
@@ -459,7 +482,7 @@ export class GraphController {
 		};
 		this.settings.customPresets.push(p);
 		this.settings.activePreset = id;
-		this.saveSoon();
+		this.saveNow();
 		this.panel?.refreshPresets();
 	}
 
@@ -470,26 +493,40 @@ export class GraphController {
 		const tmp = a[i]!;
 		a[i] = a[j]!;
 		a[j] = tmp;
-		this.saveSoon();
+		this.saveNow();
 		this.panel?.refreshPresets();
 	}
 
 	deleteCustomPreset(i: number): void {
 		const removed = this.settings.customPresets.splice(i, 1)[0];
 		if (removed && this.settings.activePreset === removed.id) this.settings.activePreset = '';
-		this.saveSoon();
+		this.saveNow();
+		this.panel?.refreshPresets();
+	}
+
+	/** 重命名自定义预设：名称同步写入 name/nameEn（两语言都用它，不再回退到「我的 N」）；立即写盘 */
+	renameCustomPreset(i: number, name: string): void {
+		const p = this.settings.customPresets[i];
+		if (!p) return;
+		const trimmed = name.trim();
+		if (!trimmed) return;
+		p.name = trimmed;
+		p.nameEn = trimmed;
+		this.saveNow();
 		this.panel?.refreshPresets();
 	}
 
 	/** 分区级还原：把某分区参数复位到当前激活预设的值 */
-	restorePresetSection(group: 'bloom' | 'physics' | 'look'): void {
+	restorePresetSection(group: 'bloom' | 'physics' | 'look' | 'space'): void {
 		const p = [...STYLE_PRESETS, ...this.settings.customPresets].find((x) => x.id === this.settings.activePreset);
 		if (!p) return;
 		if (group === 'bloom') Object.assign(this.settings.bloom, p.bloom);
 		else if (group === 'physics') Object.assign(this.settings.physics, p.physics);
-		else {
-			Object.assign(this.settings.look, p.look);
+		else if (group === 'space') {
+			Object.assign(this.settings.space, p.space);
 			this.settings.showStarfield = p.starfield;
+		} else {
+			Object.assign(this.settings.look, p.look);
 			const theme = COLOR_THEMES.find((t) => t.id === p.theme);
 			if (theme) this.applyColorTheme(theme);
 		}
@@ -534,7 +571,7 @@ export class GraphController {
 		if (groups.length === 0) {
 			const byFolder = new Map<string, number>();
 			for (const n of this.store.data.nodes) {
-				if (n.folderTop && !n.unresolved) byFolder.set(n.folderTop, (byFolder.get(n.folderTop) ?? 0) + 1);
+				if (n.folderTop && !n.unresolved && !n.tag) byFolder.set(n.folderTop, (byFolder.get(n.folderTop) ?? 0) + 1);
 			}
 			groups = [...byFolder.entries()]
 				.sort((a, b) => b[1] - a[1])
@@ -546,6 +583,7 @@ export class GraphController {
 		this.settings.colorTheme = theme.id;
 		this.renderer?.setColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
+		this.syncNebulaTint();
 		this.saveSoon();
 	}
 
@@ -574,6 +612,7 @@ export class GraphController {
 		this.settings.colorTheme = 'custom';
 		this.renderer?.setColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
+		this.syncNebulaTint();
 		this.saveSoon();
 	}
 
@@ -601,6 +640,7 @@ export class GraphController {
 		this.settings.colorGroups = groups;
 		this.renderer?.setColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
+		this.syncNebulaTint();
 		this.saveSoon();
 		if (notify) new Notice(t('notice.imported', { n: groups.length }));
 	}
@@ -759,7 +799,7 @@ export class GraphController {
 		const onDblClick = (e: MouseEvent) => {
 			if (e.button !== 0 || this.selected < 0) return;
 			const node = this.store.data.nodes[this.selected];
-			if (node && !node.unresolved) void this.app.workspace.openLinkText(node.id, '', true);
+			if (node && !node.unresolved && !node.tag) void this.app.workspace.openLinkText(node.id, '', true);
 		};
 		dom.addEventListener('pointerdown', onDown);
 		dom.addEventListener('pointerup', onUp);
@@ -822,7 +862,12 @@ export class GraphController {
 			onLook: () => {
 				this.renderer?.setNodeScale(this.settings.look.nodeSize);
 				this.renderer?.setLinkOpacity(this.settings.look.linkOpacity);
+				this.renderer?.setLinkCurve(this.settings.look.linkCurve);
 				if (this.renderer) this.renderer.twinkleFreq = this.settings.look.twinkle;
+				this.saveSoon();
+			},
+			onSpace: () => {
+				this.renderer?.setSpace(this.settings.space);
 				this.saveSoon();
 			},
 			onSizeBy: () => {
@@ -838,6 +883,7 @@ export class GraphController {
 			onSavePreset: () => this.saveCurrentAsPreset(),
 			onMovePreset: (i, dir) => this.moveCustomPreset(i, dir),
 			onDeletePreset: (i) => this.deleteCustomPreset(i),
+			onRenamePreset: (i, name) => this.renameCustomPreset(i, name),
 			onRestoreSection: (g) => this.restorePresetSection(g),
 			onShowUnresolved: (on) => {
 				this.store.setIncludeUnresolved(on);
@@ -850,6 +896,10 @@ export class GraphController {
 			onReveal: () => this.playRevealManually(),
 			onShowOrphans: (on) => {
 				this.store.setIncludeOrphans(on);
+				this.saveSoon();
+			},
+			onShowTags: (on) => {
+				this.store.setIncludeTags(on);
 				this.saveSoon();
 			},
 			onStarfield: (on) => {
@@ -922,6 +972,8 @@ export class GraphController {
 		this.applyTier(); // 内部按 qualityOverride 重选档 + store.setCaps
 		this.store.setIncludeOrphans(this.settings.showOrphans);
 		this.store.setIncludeUnresolved(this.settings.showUnresolved);
+		this.store.setIncludeTags(this.settings.showTags);
+		this.store.setShowGhostEdges(this.settings.showGhostEdges);
 		this.panel?.refreshAll();
 	}
 

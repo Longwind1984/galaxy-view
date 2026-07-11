@@ -1,10 +1,19 @@
 import type { App } from 'obsidian';
-import { Component, debounce } from 'obsidian';
+import { Component, debounce, getAllTags } from 'obsidian';
 import type { GraphData } from '../types';
 import { buildGraph } from './buildGraph';
 import { buildAdjacency } from './Adjacency';
 import type { Adjacency } from './Adjacency';
 import { seedPosition, seedRadius } from './seed';
+import { readGhostEdges } from '../settings/ghostEdgeImport';
+import type { GhostEdgeRecord } from '../settings/ghostEdgeImport';
+
+/** 幽灵边（Constellation 待定建议）：节点下标 + 强度。不计 degree、不进邻接、不参与布局力。 */
+export interface GhostLink {
+	source: number;
+	target: number;
+	score: number;
+}
 
 /**
  * 唯一读 metadataCache 的模块。
@@ -20,18 +29,26 @@ export class GraphStore extends Component {
 
 	private includeUnresolved = false;
 	private includeOrphans = true;
+	private includeTags = false;
 	private nodeCap: number | null = null;
 	private linkCap: number | null = null;
 	private onChanged: (() => void) | null = null;
+
+	/** 幽灵边：未确认数据不移动星系——虚线浮在既有结构之上本身就是「这里缺一条链接」的视觉论证 */
+	ghostLinks: GhostLink[] = [];
+	private showGhostEdges = true;
+	private ghostRaw: GhostEdgeRecord[] = [];
+	private ghostKey = '';
 
 	constructor(private app: App) {
 		super();
 	}
 
 	/** dataChanged 在防抖重建完成后触发（调用方负责 reheat + 重建渲染缓冲） */
-	init(includeUnresolved: boolean, includeOrphans: boolean, onChanged: () => void): void {
+	init(includeUnresolved: boolean, includeOrphans: boolean, includeTags: boolean, onChanged: () => void): void {
 		this.includeUnresolved = includeUnresolved;
 		this.includeOrphans = includeOrphans;
+		this.includeTags = includeTags;
 		this.onChanged = onChanged;
 		const rebuildSoon = debounce(() => this.rebuild(true), 800, true);
 		this.registerEvent(this.app.metadataCache.on('resolved', rebuildSoon));
@@ -70,16 +87,67 @@ export class GraphStore extends Component {
 		this.rebuild(true);
 	}
 
+	setIncludeTags(v: boolean): void {
+		if (v === this.includeTags) return;
+		this.includeTags = v;
+		this.rebuild(true);
+	}
+
+	setShowGhostEdges(v: boolean): void {
+		if (v === this.showGhostEdges) return;
+		this.showGhostEdges = v;
+		this.resolveGhost();
+		this.onChanged?.();
+	}
+
+	/** 路径 → 当前节点下标；任一端不在图中的边丢弃 */
+	private resolveGhost(): void {
+		if (!this.showGhostEdges || this.ghostRaw.length === 0) {
+			this.ghostLinks = [];
+			return;
+		}
+		const idxById = new Map<string, number>();
+		this.data.nodes.forEach((n, i) => idxById.set(n.id, i));
+		const out: GhostLink[] = [];
+		for (const r of this.ghostRaw) {
+			const s = idxById.get(r.source);
+			const t = idxById.get(r.target);
+			if (s === undefined || t === undefined || s === t) continue;
+			out.push({ source: s, target: t, score: r.state === 'deferred' ? r.score * 0.6 : r.score });
+		}
+		this.ghostLinks = out;
+	}
+
+	/** 异步重读协议文件；内容未变不惊动渲染（防 rebuild→refresh 循环） */
+	async refreshGhost(): Promise<void> {
+		const raw = (await readGhostEdges(this.app)) ?? [];
+		const key = JSON.stringify(raw);
+		if (key === this.ghostKey) return;
+		this.ghostKey = key;
+		this.ghostRaw = raw;
+		this.resolveGhost();
+		this.onChanged?.();
+	}
+
 	/** preservePositions=false 用于基准（全新确定性种子 → 完整冷布局） */
 	rebuild(preservePositions: boolean): void {
-		const files = this.app.vault.getMarkdownFiles().map((f) => ({
-			path: f.path,
-			basename: f.basename,
-			size: f.stat.size,
-		}));
+		const withTags = this.includeTags; // 仅开启时才取标签，省掉每次重建的 getFileCache 开销
+		const files = this.app.vault.getMarkdownFiles().map((f) => {
+			const rec: { path: string; basename: string; size: number; tags?: string[] } = {
+				path: f.path,
+				basename: f.basename,
+				size: f.stat.size,
+			};
+			if (withTags) {
+				const cache = this.app.metadataCache.getFileCache(f);
+				rec.tags = cache ? (getAllTags(cache) ?? []) : [];
+			}
+			return rec;
+		});
 		const next = buildGraph(files, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks, {
 			includeUnresolved: this.includeUnresolved,
 			includeOrphans: this.includeOrphans,
+			includeTags: this.includeTags,
 			nodeCap: this.nodeCap,
 			linkCap: this.linkCap,
 		});
@@ -109,6 +177,8 @@ export class GraphStore extends Component {
 		this.data = next;
 		this.positions = positions;
 		this.adjacency = buildAdjacency(next); // 派生数据，键于新（可能重排）索引
+		this.resolveGhost(); // 幽灵边随索引重排重新解析（用缓存的 ghostRaw，同步）
 		this.onChanged?.();
+		void this.refreshGhost(); // 顺带异步重读文件：接受建议→真实链接落盘→重建时虚线自然消失
 	}
 }

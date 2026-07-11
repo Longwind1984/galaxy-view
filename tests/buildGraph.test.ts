@@ -94,3 +94,35 @@ describe('质量档位帽（M4）', () => {
 		expect(linkCapped.links.every((l) => l.source !== 3 && l.target !== 3)).toBe(true);
 	});
 });
+
+describe('标签作为节点', () => {
+	const taggedFiles = [
+		{ path: 'a.md', basename: 'a', tags: ['#课堂笔记', '#数学'] },
+		{ path: 'b.md', basename: 'b', tags: ['#课堂笔记'] },
+	];
+
+	it('includeTags：共享 tag 的两篇笔记连到同一 tag 节点，该节点 degree=2', () => {
+		const g = buildGraph(taggedFiles, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: true });
+		const tagIdx = g.nodes.findIndex((n) => n.id === 'tag:#课堂笔记');
+		expect(tagIdx).toBeGreaterThanOrEqual(0);
+		expect(g.nodes[tagIdx]?.tag).toBe(true);
+		expect(g.nodes[tagIdx]?.folderTop).toBe('__tag__');
+		expect(g.nodes[tagIdx]?.degree).toBe(2); // a、b 各连一条
+		expect(g.links.filter((l) => l.target === tagIdx)).toHaveLength(2);
+		// #数学 只有 a 带 → degree 1
+		expect(g.nodes.find((n) => n.id === 'tag:#数学')?.degree).toBe(1);
+	});
+
+	it('includeTags=false：无 tag 节点', () => {
+		const g = buildGraph(taggedFiles, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: false });
+		expect(g.nodes.every((n) => !n.tag)).toBe(true);
+		expect(g.nodes).toHaveLength(2);
+	});
+
+	it('同笔记重复同一 tag 去重，不产生重边', () => {
+		const dup = [{ path: 'a.md', basename: 'a', tags: ['#x', '#x'] }];
+		const g = buildGraph(dup, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: true });
+		expect(g.links).toHaveLength(1);
+		expect(g.nodes.filter((n) => n.tag)).toHaveLength(1);
+	});
+});

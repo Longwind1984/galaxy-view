@@ -14,6 +14,7 @@ export interface ControlPanelCallbacks {
 	onBloom: () => void;
 	onPhysics: () => void;
 	onLook: () => void;
+	onSpace: () => void;
 	onCruise: (on: boolean) => void;
 	onCruiseSpeed: () => void;
 	onStylePreset: (p: StylePreset) => void;
@@ -22,7 +23,8 @@ export interface ControlPanelCallbacks {
 	onSavePreset: () => void;
 	onMovePreset: (i: number, dir: -1 | 1) => void;
 	onDeletePreset: (i: number) => void;
-	onRestoreSection: (group: 'bloom' | 'physics' | 'look') => void;
+	onRenamePreset: (i: number, name: string) => void;
+	onRestoreSection: (group: 'bloom' | 'physics' | 'look' | 'space') => void;
 	onShowUnresolved: (on: boolean) => void;
 	onImportColors: () => void;
 	onShuffleColors: () => void;
@@ -31,6 +33,7 @@ export interface ControlPanelCallbacks {
 	onRecenter: () => void;
 	onReveal: () => void;
 	onShowOrphans: (on: boolean) => void;
+	onShowTags: (on: boolean) => void;
 	onSizeBy: () => void;
 	onQuality: () => void;
 	onSearch: () => void;
@@ -44,9 +47,10 @@ export interface ControlPanelCallbacks {
 	runScenario: (s: 'S1' | 'S2' | 'S3') => void;
 }
 
-const SEC = { look: 'look', physics: 'physics', bloom: 'bloom' } as const;
-const SECTION_DEFS: { id: string; group: 'look' | 'physics' | 'bloom'; key: Parameters<typeof t>[0] }[] = [
+const SEC = { look: 'look', space: 'space', physics: 'physics', bloom: 'bloom' } as const;
+const SECTION_DEFS: { id: string; group: 'look' | 'physics' | 'bloom' | 'space'; key: Parameters<typeof t>[0] }[] = [
 	{ id: SEC.look, group: 'look', key: 'panel.sec.look' },
+	{ id: SEC.space, group: 'space', key: 'panel.sec.space' },
 	{ id: SEC.physics, group: 'physics', key: 'panel.sec.physics' },
 	{ id: SEC.bloom, group: 'bloom', key: 'panel.sec.bloom' },
 ];
@@ -71,12 +75,12 @@ export class ControlPanel {
 	private cruiseBtn: HTMLButtonElement | null = null;
 	private unresolvedBtn: HTMLButtonElement | null = null;
 	private orphanBtn: HTMLButtonElement | null = null;
+	private tagBtn: HTMLButtonElement | null = null;
 	private sizeByBtn: HTMLButtonElement | null = null;
 	private starfieldBtn: HTMLButtonElement | null = null;
 	private tourPlayBtn: HTMLButtonElement | null = null;
 	private presetHost: HTMLElement | null = null;
 	private secBadges: Record<string, { badge: HTMLElement; restore: HTMLElement }> = {};
-	private confirmDelId: string | null = null;
 	private helpEl: HTMLElement | null = null;
 	private cb: ControlPanelCallbacks;
 
@@ -126,7 +130,7 @@ export class ControlPanel {
 		this.presetHost = body.createDiv({ cls: 'gx-preset-host' });
 		this.buildPresets();
 
-		const section = (id: string, key: Parameters<typeof t>[0], withMarker: 'look' | 'physics' | 'bloom' | null) => {
+		const section = (id: string, key: Parameters<typeof t>[0], withMarker: 'look' | 'physics' | 'bloom' | 'space' | null) => {
 			const det = body.createEl('details', { cls: 'gx-section' });
 			if (s.panelSections[id]) det.setAttribute('open', '');
 			const sum = det.createEl('summary');
@@ -153,6 +157,7 @@ export class ControlPanel {
 		this.sliders.push(
 			new Slider(lookSec, { label: t('slider.look.nodeSize'), min: 0.3, max: 2.5, step: 0.05, defaultValue: d.look.nodeSize, get: () => s.look.nodeSize, set: (v) => (s.look.nodeSize = v), fmt: (v) => `${v.toFixed(2)}×`, onInput: () => this.tracked(cb.onLook) }),
 			new Slider(lookSec, { label: t('slider.look.linkOpacity'), min: 0, max: 0.6, step: 0.01, defaultValue: d.look.linkOpacity, get: () => s.look.linkOpacity, set: (v) => (s.look.linkOpacity = v), onInput: () => this.tracked(cb.onLook) }),
+			new Slider(lookSec, { label: t('slider.look.linkCurve'), min: 0, max: 1, step: 0.05, defaultValue: d.look.linkCurve, get: () => s.look.linkCurve, set: (v) => (s.look.linkCurve = v), fmt: (v) => (v < 0.025 ? t('value.off') : v.toFixed(2)), onInput: () => this.tracked(cb.onLook) }),
 			new Slider(lookSec, { label: t('slider.look.twinkle'), min: 0, max: 2, step: 0.1, defaultValue: d.look.twinkle, get: () => s.look.twinkle, set: (v) => (s.look.twinkle = v), fmt: (v) => (v < 0.05 ? t('value.off') : `${v.toFixed(1)}`), onInput: () => this.tracked(cb.onLook) }),
 		);
 		const sizeRow = lookSec.createDiv({ cls: 'galaxy-panel-row' });
@@ -162,12 +167,6 @@ export class ControlPanel {
 			s.look.sizeBy = order[(order.indexOf(s.look.sizeBy) + 1) % order.length] ?? 'degree';
 			this.sizeByBtn?.setText(this.sizeByLabel());
 			this.tracked(cb.onSizeBy);
-		});
-		this.starfieldBtn = sizeRow.createEl('button', { text: this.starfieldLabel() });
-		this.starfieldBtn.addEventListener('click', () => {
-			s.showStarfield = !s.showStarfield;
-			this.starfieldBtn?.setText(this.starfieldLabel());
-			this.tracked(() => cb.onStarfield(s.showStarfield));
 		});
 		const themeSel = lookSec.createEl('select', { cls: 'gx-theme-select' });
 		const customOpt = themeSel.createEl('option', { text: t('look.theme.placeholder'), value: '' });
@@ -190,6 +189,22 @@ export class ControlPanel {
 		colorRow.createEl('button', { text: t('look.shuffle') }).addEventListener('click', () => {
 			cb.onShuffleColors();
 			customOpt.selected = true;
+		});
+
+		// 深空背景（v0.4）：星点天幕开关 + 三个形态层滑杆（0=关），可自由叠加组合
+		const spaceSec = section(SEC.space, 'panel.sec.space', 'space');
+		const fmtOff = (v: number) => (v < 0.025 ? t('value.off') : v.toFixed(2));
+		this.sliders.push(
+			new Slider(spaceSec, { label: t('slider.space.nebula'), min: 0, max: 1, step: 0.05, defaultValue: d.space.nebula, get: () => s.space.nebula, set: (v) => (s.space.nebula = v), fmt: fmtOff, onInput: () => this.tracked(cb.onSpace) }),
+			new Slider(spaceSec, { label: t('slider.space.fieldStars'), min: 0, max: 1, step: 0.05, defaultValue: d.space.fieldStars, get: () => s.space.fieldStars, set: (v) => (s.space.fieldStars = v), fmt: fmtOff, onInput: () => this.tracked(cb.onSpace) }),
+			new Slider(spaceSec, { label: t('slider.space.clusterClouds'), min: 0, max: 1, step: 0.05, defaultValue: d.space.clusterClouds, get: () => s.space.clusterClouds, set: (v) => (s.space.clusterClouds = v), fmt: fmtOff, onInput: () => this.tracked(cb.onSpace) }),
+		);
+		const starRow = spaceSec.createDiv({ cls: 'galaxy-panel-row' });
+		this.starfieldBtn = starRow.createEl('button', { text: this.starfieldLabel() });
+		this.starfieldBtn.addEventListener('click', () => {
+			s.showStarfield = !s.showStarfield;
+			this.starfieldBtn?.setText(this.starfieldLabel());
+			this.tracked(() => cb.onStarfield(s.showStarfield));
 		});
 
 		// 辉光
@@ -299,6 +314,12 @@ export class ControlPanel {
 			this.orphanBtn?.setText(this.orphanLabel());
 			cb.onShowOrphans(s.showOrphans);
 		});
+		this.tagBtn = advRow.createEl('button', { text: this.tagLabel() });
+		this.tagBtn.addEventListener('click', () => {
+			s.showTags = !s.showTags;
+			this.tagBtn?.setText(this.tagLabel());
+			cb.onShowTags(s.showTags);
+		});
 		this.advStatsEl = advBody.createDiv({ cls: 'gx-adv-stats', text: '…' });
 		if (__GALAXY_DEV__) {
 			const devRow = advBody.createDiv({ cls: 'galaxy-panel-row' });
@@ -325,12 +346,9 @@ export class ControlPanel {
 	}
 
 	private makePresetCard(grid: HTMLElement, p: StylePreset, isMine: boolean, idx: number): void {
-		const confirming = isMine && this.confirmDelId === p.id;
-		// div（非 button）：Obsidian 的 button 默认 inline-flex 居中 + 固定高，会把卡片的多行内容压扁/裁掉；
-		// 且自定义卡里嵌 button（排序/删除）在 button 内是非法嵌套。
+		// div（非 button）：Obsidian 的 button 默认 inline-flex 居中 + 固定高，会把卡片的多行内容压扁/裁掉。
 		const card = grid.createDiv({ cls: 'gx-pcard', attr: { role: 'button', tabindex: '0' } });
 		card.toggleClass('is-active', p.id === this.settings.activePreset);
-		card.toggleClass('is-confirming', confirming);
 		const nameRow = card.createDiv({ cls: 'gx-pcard-n' });
 		const icon = nameRow.createSpan({ cls: 'gx-pcard-icon' });
 		try {
@@ -338,32 +356,15 @@ export class ControlPanel {
 		} catch {
 			/* 图标是装饰，画不出也不影响卡片 */
 		}
-		nameRow.createSpan({ text: presetName(p) });
-		card.createDiv({ cls: 'gx-pcard-s', text: t((isMine ? 'preset.sub.custom' : `preset.sub.${p.id}`) as Parameters<typeof t>[0]) });
+		const nameSpan = nameRow.createSpan({ text: presetName(p) });
+		// 内置预设的副标题=气质描述（有效区分信息）；自定义预设无副标题（避免每张都印同一句废话）
+		if (!isMine) card.createDiv({ cls: 'gx-pcard-s', text: t(`preset.sub.${p.id}` as Parameters<typeof t>[0]) });
 		if (isMine) {
+			// 四个管理操作（改名/上移/下移/删除）收进一个 ⋯ 菜单：右上角只留一个点，不挤不遮名字
 			const ops = card.createDiv({ cls: 'gx-mine-ops' });
-			if (confirming) {
-				ops.createSpan({ cls: 'gx-cd-label', text: t('mine.confirmDel') });
-				const ok = ops.createEl('button', { cls: 'gx-ok', text: '✓' });
-				ok.addEventListener('click', (e) => {
-					e.stopPropagation();
-					this.confirmDelId = null;
-					this.cb.onDeletePreset(idx);
-				});
-				const no = ops.createEl('button', { cls: 'gx-no', text: '✕' });
-				no.addEventListener('click', (e) => {
-					e.stopPropagation();
-					this.confirmDelId = null;
-					this.buildPresets();
-				});
-			} else {
-				const up = ops.createEl('button', { text: '↑' });
-				up.addEventListener('click', (e) => { e.stopPropagation(); this.cb.onMovePreset(idx, -1); });
-				const dn = ops.createEl('button', { text: '↓' });
-				dn.addEventListener('click', (e) => { e.stopPropagation(); this.cb.onMovePreset(idx, 1); });
-				const del = ops.createEl('button', { text: '×' });
-				del.addEventListener('click', (e) => { e.stopPropagation(); this.confirmDelId = p.id; this.buildPresets(); });
-			}
+			const more = ops.createEl('button', { cls: 'gx-more', text: '⋯' });
+			more.setAttribute('aria-label', t('mine.more'));
+			more.addEventListener('click', (e) => { e.stopPropagation(); this.openPresetMenu(e, idx, card, nameSpan, p); });
 		}
 		const commit = () => { this.cb.onStylePreset(p); this.refreshAll(); };
 		card.addEventListener('mouseenter', () => { this.cb.onPresetHover(p); this.showPreviewMarkers(presetName(p)); });
@@ -375,6 +376,44 @@ export class ControlPanel {
 				commit();
 			}
 		});
+	}
+
+	/** 自定义预设的 ⋯ 菜单：改名 / 上移 / 下移 / 删除（管理操作低频，收进菜单避免卡片右上角挤按钮） */
+	private openPresetMenu(e: MouseEvent, idx: number, card: HTMLElement, nameSpan: HTMLElement, p: StylePreset): void {
+		const last = this.settings.customPresets.length - 1;
+		const menu = new Menu();
+		menu.addItem((i) => i.setTitle(t('mine.rename')).setIcon('pencil').onClick(() => this.beginRename(idx, card, nameSpan, p)));
+		menu.addItem((i) => i.setTitle(t('mine.up')).setIcon('arrow-up').setDisabled(idx === 0).onClick(() => this.cb.onMovePreset(idx, -1)));
+		menu.addItem((i) => i.setTitle(t('mine.down')).setIcon('arrow-down').setDisabled(idx === last).onClick(() => this.cb.onMovePreset(idx, 1)));
+		menu.addSeparator();
+		menu.addItem((i) => i.setTitle(t('mine.del')).setIcon('trash').onClick(() => this.cb.onDeletePreset(idx)));
+		menu.showAtMouseEvent(e);
+	}
+
+	/** 内联重命名：把名字 span 原地换成输入框，Enter/失焦提交、Esc 取消；成功后由 refreshPresets 重建卡片 */
+	private beginRename(idx: number, card: HTMLElement, nameSpan: HTMLElement, p: StylePreset): void {
+		const input = nameSpan.parentElement?.createEl('input', { cls: 'gx-pcard-rename', value: presetName(p) });
+		if (!input) return;
+		card.addClass('is-renaming'); // 编辑态隐藏 ✎↑↓×，输入框独占整行
+		nameSpan.replaceWith(input);
+		input.focus();
+		input.select();
+		let done = false;
+		const finish = (save: boolean) => {
+			if (done) return;
+			done = true;
+			const v = input.value.trim();
+			if (save && v) this.cb.onRenamePreset(idx, v); // → refreshPresets 重建
+			else this.buildPresets(); // 取消或空值：重建还原原名
+		};
+		// 输入框内的按键/点击都不能冒泡到卡片（否则触发应用预设或空格键翻页）
+		input.addEventListener('keydown', (e) => {
+			e.stopPropagation();
+			if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+			else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+		});
+		input.addEventListener('click', (e) => e.stopPropagation());
+		input.addEventListener('blur', () => finish(true));
 	}
 
 	/** GraphController 存/移/删预设后调用：重建卡片区 */
@@ -397,13 +436,14 @@ export class ControlPanel {
 	private near(a: number, b: number): boolean {
 		return Math.abs(a - b) < 1e-4;
 	}
-	private sectionClean(group: 'look' | 'physics' | 'bloom'): boolean {
+	private sectionClean(group: 'look' | 'physics' | 'bloom' | 'space'): boolean {
 		const p = this.activePresetObj();
 		if (!p) return false;
 		const s = this.settings;
 		if (group === 'bloom') return this.near(s.bloom.strength, p.bloom.strength) && this.near(s.bloom.radius, p.bloom.radius) && this.near(s.bloom.threshold, p.bloom.threshold);
 		if (group === 'physics') return (['repel', 'linkDistance', 'linkStrength', 'centerPull', 'flatten', 'coreGravity', 'spiral'] as const).every((k) => this.near(s.physics[k], p.physics[k]));
-		return this.near(s.look.nodeSize, p.look.nodeSize) && this.near(s.look.linkOpacity, p.look.linkOpacity) && this.near(s.look.twinkle, p.look.twinkle) && s.look.sizeBy === p.look.sizeBy && s.showStarfield === p.starfield && s.colorTheme === p.theme;
+		if (group === 'space') return (['nebula', 'fieldStars', 'clusterClouds'] as const).every((k) => this.near(s.space[k], p.space[k])) && s.showStarfield === p.starfield;
+		return this.near(s.look.nodeSize, p.look.nodeSize) && this.near(s.look.linkOpacity, p.look.linkOpacity) && this.near(s.look.linkCurve, p.look.linkCurve) && this.near(s.look.twinkle, p.look.twinkle) && s.look.sizeBy === p.look.sizeBy && s.colorTheme === p.theme;
 	}
 
 	private refreshMarkers(): void {
@@ -466,6 +506,9 @@ export class ControlPanel {
 	private orphanLabel(): string {
 		return this.settings.showOrphans ? t('adv.orphan.on') : t('adv.orphan.off');
 	}
+	private tagLabel(): string {
+		return this.settings.showTags ? t('adv.tag.on') : t('adv.tag.off');
+	}
 
 	refreshAll(): void {
 		for (const sl of this.sliders) sl.refresh();
@@ -473,6 +516,7 @@ export class ControlPanel {
 		this.cruiseBtn?.toggleClass('is-on', this.settings.cruise);
 		this.unresolvedBtn?.setText(this.unresolvedLabel());
 		this.orphanBtn?.setText(this.orphanLabel());
+		this.tagBtn?.setText(this.tagLabel());
 		this.sizeByBtn?.setText(this.sizeByLabel());
 		this.starfieldBtn?.setText(this.starfieldLabel());
 		this.buildPresets();

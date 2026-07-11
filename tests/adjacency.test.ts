@@ -17,6 +17,7 @@ function chain(): GraphData {
 			outDegree: 0,
 			fileSize: 0,
 			unresolved: false,
+			tag: false,
 		})),
 		links: [
 			{ source: 0, target: 1 },
@@ -95,7 +96,7 @@ describe('shortestPath (guided path BFS)', () => {
 		expect(shortestPath(buildAdjacency(chain()), 2, 2)).toEqual([2]);
 		// 加一个孤立节点 5（无边）→ 与其它不连通
 		const g = chain();
-		g.nodes.push({ id: '5', name: '5', folderTop: '', degree: 0, inDegree: 0, outDegree: 0, fileSize: 0, unresolved: false });
+		g.nodes.push({ id: '5', name: '5', folderTop: '', degree: 0, inDegree: 0, outDegree: 0, fileSize: 0, unresolved: false, tag: false });
 		expect(shortestPath(buildAdjacency(g), 0, 5)).toEqual([]);
 	});
 });

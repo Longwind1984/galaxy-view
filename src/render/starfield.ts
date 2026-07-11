@@ -76,6 +76,46 @@ export class Twinkler {
 	}
 }
 
+/**
+ * 空间浮星（v0.4 背景形态层）：散布在图体积内外的零星小星，sizeAttenuation 近大远小，
+ * 巡航时产生视差——与球壳天幕的「无穷远」星点是两种不同的深度感。1 draw call。
+ */
+export function buildFieldStars(volumeRadius: number, density: number, scale = 1): Points<BufferGeometry, PointsMaterial> {
+	const count = Math.max(Math.round(1200 * density * scale), 1);
+	const rand = mulberry(0x2f6e1b);
+	const pos = new Float32Array(count * 3);
+	const col = new Float32Array(count * 3);
+	for (let i = 0; i < count; i++) {
+		// 立方根采样趋近体积均匀，再抬走 30% 内圈——核心区留给节点，浮星散在中远景
+		const r = volumeRadius * (0.3 + 0.7 * Math.cbrt(rand()));
+		const theta = 2 * Math.PI * rand();
+		const phi = Math.acos(2 * rand() - 1);
+		pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+		pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+		pos[i * 3 + 2] = r * Math.cos(phi);
+		const pick = rand();
+		const c = (pick < 0.85 ? COOL_A.clone().lerp(COOL_B, rand()) : pick < 0.95 ? WARM.clone() : BLUE.clone()).multiplyScalar(0.75);
+		col[i * 3] = c.r;
+		col[i * 3 + 1] = c.g;
+		col[i * 3 + 2] = c.b;
+	}
+	const geo = new BufferGeometry();
+	geo.setAttribute('position', new BufferAttribute(pos, 3));
+	geo.setAttribute('color', new BufferAttribute(col, 3));
+	const mat = new PointsMaterial({
+		size: 2.4,
+		sizeAttenuation: true,
+		vertexColors: true,
+		transparent: true,
+		opacity: 0.6,
+		depthWrite: false,
+	});
+	const points = new Points(geo, mat);
+	points.renderOrder = -1;
+	points.frustumCulled = false;
+	return points;
+}
+
 export function buildStarfield(shellRadius: number, scale = 1): { group: Group; twinkler: Twinkler } {
 	const group = new Group();
 	const rand = mulberry(0x517cc1);

@@ -16,6 +16,7 @@ export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
 		color: new Color(g.color),
 	}));
 	return (node) => {
+		if (node.tag) return TAG;
 		if (node.unresolved) return UNRESOLVED;
 		for (const g of parsed) {
 			if (g.prefix !== null ? node.id.startsWith(g.prefix) : node.id.includes(g.raw)) return g.color;
@@ -24,7 +25,8 @@ export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
 	};
 }
 
-export const fallbackColorFn: NodeColorFn = (node) => folderColor(node.folderTop, node.unresolved);
+export const fallbackColorFn: NodeColorFn = (node) =>
+	node.tag ? TAG : folderColor(node.folderTop, node.unresolved);
 
 // Obsidian 标准色族 hsl(h, 60%, 60%) 的色相轮（与 Rick 的 9 组配色同族）；
 // M2 接 graph.json 真实 colorGroups，本表是无配置时的回退
@@ -32,6 +34,7 @@ const HUES = [0, 40, 80, 120, 160, 200, 240, 280, 320];
 
 const NEUTRAL = new Color('#9aa4b2'); // 未分组
 const UNRESOLVED = new Color('#7a8499'); // 幽灵
+const TAG = new Color('#d8a94b'); // 标签节点：暖琥珀，与文件夹色相/未解析灰区分，读作「元/结构」
 
 const cache = new Map<string, Color>();
 

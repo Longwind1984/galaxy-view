@@ -9,7 +9,9 @@ export interface QualityTier {
 	id: TierId;
 	pixelRatioCap: number;
 	bloomAllowed: boolean; // mobile 关 bloom：shader 热核保住 80% 观感，省掉全部后期开销
-	starScale: number; // 星空点数缩放
+	starScale: number; // 星空点数缩放（天幕星点与空间浮星共用）
+	linkSegments: number; // 曲线连线每边折线段数（曲率>0 时生效；0 曲率恒为 1 段）
+	clusterCloudsAllowed: boolean; // 集群云雾（加色大精灵有填充率风险，mobile 关）
 	nodeCap: number | null; // 按度数排序取 top N（实测 top1500 保 94% 链接质量）
 	linkCap: number | null; // 按 min(端点度数) 取 top N
 	hubLabels: number;
@@ -23,6 +25,8 @@ export const TIERS: Record<TierId, QualityTier> = {
 		pixelRatioCap: 2,
 		bloomAllowed: true,
 		starScale: 1,
+		linkSegments: 8,
+		clusterCloudsAllowed: true,
 		nodeCap: null,
 		linkCap: null,
 		hubLabels: 14,
@@ -34,6 +38,8 @@ export const TIERS: Record<TierId, QualityTier> = {
 		pixelRatioCap: 1,
 		bloomAllowed: true,
 		starScale: 0.4,
+		linkSegments: 6,
+		clusterCloudsAllowed: true,
 		nodeCap: null,
 		linkCap: null,
 		hubLabels: 8,
@@ -45,6 +51,8 @@ export const TIERS: Record<TierId, QualityTier> = {
 		pixelRatioCap: 1.5,
 		bloomAllowed: false,
 		starScale: 0.32,
+		linkSegments: 4,
+		clusterCloudsAllowed: false,
 		nodeCap: 1500,
 		linkCap: 12_000,
 		hubLabels: 6,

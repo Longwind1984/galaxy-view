@@ -153,10 +153,16 @@ export class OverlayManager {
 		const dot = meta.createSpan({ cls: 'gx-card-dot' });
 		dot.style.background = this.renderer.nodeColorHex(index);
 		meta.createSpan({
-			text: node.unresolved ? t('card.unresolved') : node.id.includes('/') ? node.id.slice(0, node.id.lastIndexOf('/')) : t('card.root'),
+			text: node.tag
+				? t('card.tag')
+				: node.unresolved
+					? t('card.unresolved')
+					: node.id.includes('/')
+						? node.id.slice(0, node.id.lastIndexOf('/'))
+						: t('card.root'),
 		});
 
-		const file = node.unresolved ? null : this.app.vault.getAbstractFileByPath(node.id);
+		const file = node.unresolved || node.tag ? null : this.app.vault.getAbstractFileByPath(node.id);
 		const tfile = file instanceof TFile ? file : null;
 
 		if (tfile) {
@@ -173,7 +179,8 @@ export class OverlayManager {
 		const mdate = tfile
 			? ` · ${new Date(tfile.stat.mtime).toLocaleDateString(getLang() === 'zh' ? 'zh-CN' : 'en', { year: 'numeric', month: 'short', day: 'numeric' })}`
 			: '';
-		stats.setText(t('card.stats', { in: node.inDegree, out: node.outDegree }) + mdate);
+		// 标签节点：显示「N 篇笔记」（= 带此 tag 的笔记数）而非反链/出链
+		stats.setText(node.tag ? t('card.tagNotes', { n: node.degree }) : t('card.stats', { in: node.inDegree, out: node.outDegree }) + mdate);
 
 		if (tfile) {
 			const snippetEl = body.createDiv({ cls: 'gx-card-snippet', text: '…' });
@@ -185,7 +192,7 @@ export class OverlayManager {
 		}
 
 		const actions = body.createDiv({ cls: 'gx-card-actions' });
-		if (!node.unresolved) {
+		if (!node.unresolved && !node.tag) {
 			const openBtn = actions.createEl('button', { text: t('card.open') });
 			openBtn.addEventListener('click', () => this.cb.openNote(node.id));
 		}

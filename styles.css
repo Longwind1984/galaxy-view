@@ -719,16 +719,14 @@
 .gx-pcard-icon { display: inline-flex; width: 18px; height: 18px; flex: none; overflow: hidden; }
 /* 关键：约束内联 SVG 尺寸——否则无 width/height 时 SVG 按默认 300×150 展开，把卡片撑成一片空白 */
 .gx-pcard-icon svg { width: 18px; height: 18px; display: block; }
+.gx-pcard-rename { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; padding: 1px 4px; border: 1px solid rgba(127, 155, 255, 0.6); border-radius: 4px; background: rgba(0, 0, 0, 0.4); color: #eaf0ff; box-shadow: none; }
 .gx-pcard-s { font-size: 10px; color: rgba(150, 160, 185, 0.7); margin-top: 3px; line-height: 1.25; }
 .gx-pcard.is-active .gx-pcard-s { color: #b9c6ea; }
-.gx-mine-ops { position: absolute; top: 5px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
-.gx-pcard:hover .gx-mine-ops, .gx-pcard.is-confirming .gx-mine-ops { opacity: 1; }
-.gx-mine-ops button { width: 17px; height: 17px; border: 0; border-radius: 4px; background: rgba(0, 0, 0, 0.35); color: rgba(150, 160, 185, 0.8); font-size: 10px; line-height: 1; padding: 0; cursor: pointer; box-shadow: none; }
-.gx-mine-ops button:hover { color: #fff; background: rgba(127, 155, 255, 0.4); }
-.gx-mine-ops .gx-cd-label { font-size: 9px; color: #ffb0b0; align-self: center; padding-right: 2px; }
-.gx-mine-ops button.gx-ok { color: #7fd6a0; } .gx-mine-ops button.gx-no { color: #ff9a9a; }
-.gx-mine-ops button.gx-ok:hover { background: rgba(120, 220, 150, 0.35); color: #dfffe9; }
-.gx-mine-ops button.gx-no:hover { background: rgba(255, 120, 120, 0.35); color: #ffe1e1; }
+.gx-mine-ops { position: absolute; top: 5px; right: 6px; opacity: 0; transition: opacity 0.12s; }
+.gx-pcard:hover .gx-mine-ops { opacity: 1; }
+.gx-pcard.is-renaming .gx-mine-ops { display: none; }
+.gx-mine-ops button.gx-more { width: 22px; height: 20px; border: 0; border-radius: 5px; background: rgba(0, 0, 0, 0.35); color: rgba(160, 170, 195, 0.85); font-size: 15px; line-height: 1; padding: 0 0 3px; cursor: pointer; box-shadow: none; }
+.gx-mine-ops button.gx-more:hover { color: #fff; background: rgba(127, 155, 255, 0.4); }
 
 /* section markers */
 .gx-sec-head-spacer { flex: 1; }

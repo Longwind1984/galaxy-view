@@ -4,6 +4,7 @@ export interface VisualTokens {
 	id: 'deep-space' | 'daylight';
 	background: number;
 	starfield: boolean;
+	space: boolean; // 深空背景形态层总闸（星云天幕/浮星/集群云雾）；晨昼强制关
 	motes: boolean; // 晨昼的尘埃微粒（替代星空）
 	bloomEnabled: boolean; // 亮底辉光=雾霾，晨昼强制关
 	lightMode: boolean; // 节点 shader 变体：墨水圆盘 + rim
@@ -18,6 +19,7 @@ export const DEEP_SPACE: VisualTokens = {
 	id: 'deep-space',
 	background: 0x000003,
 	starfield: true,
+	space: true,
 	motes: false,
 	bloomEnabled: true,
 	lightMode: false,
@@ -31,6 +33,7 @@ export const DAYLIGHT: VisualTokens = {
 	id: 'daylight',
 	background: 0xf6f4ef, // 暖纸底
 	starfield: false,
+	space: false,
 	motes: true,
 	bloomEnabled: false,
 	lightMode: true,

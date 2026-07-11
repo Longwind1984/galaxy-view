@@ -108,6 +108,17 @@ export class GalaxySettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName(t('set.ghostEdges'))
+			.setDesc(t('set.ghostEdges.desc'))
+			.addToggle((tg) =>
+				tg.setValue(s.showGhostEdges).onChange(async (v) => {
+					s.showGhostEdges = v;
+					await this.plugin.saveSettings();
+					this.eachView((view) => view.controller?.syncFromSettings());
+				}),
+			);
+
+		new Setting(containerEl)
 			.setName(t('set.starfield'))
 			.setDesc(t('set.starfield.desc'))
 			.addToggle((tg) =>

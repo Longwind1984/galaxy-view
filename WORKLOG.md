@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-07-16（四）· 合并后的 main 首次回归验证（定时自主轮，仅验证未改码）
+
+### 做了什么
+PR #12（#9 居中）与 PR #13（#11 图例过滤）昨夜 23:33/23:34 先后合入 main，两条分支各自绿过，**但合并后的 main 从没被跑过**——两个分支都动了渲染层（#12 改 `AggregateRenderer` 取坐标，#13 改 `GraphController` 的 `applyColorFn` 收口），语义冲突不会被 git 报出来。本轮补跑这道缺失的回归，未改任何代码。
+
+### 结论：main 干净，发布路径通
+- `npx vitest run` → **77 测试全绿 / 8 文件**（graphTransform 4 + palette 9 + noteFilter 23 + buildGraph 11 + adjacency 9 + settingsMerge 8 + linkCurves 7 + tour 6）
+- `npx tsc -noEmit -skipLibCheck` → **exit 0**
+- `npx eslint .` → **0 error**（2 warning 均为既有：eslint config 的 `config` 弃用提示、SettingsTab 未采用 1.13 声明式设置 API）
+- `npm run build`（tsc + esbuild production）→ **通过**，产出 `dist/main.js` 797KB + manifest/styles。**发版的构建路径本身没问题**，卡点纯在眼验与授权。
+
+### 眼验清单可以缩短一项（②已被机器覆盖）
+上一条 WORKLOG 留给 Rick 的 7 项手动清单里，**② 「99Archive / 90故纸堆 / Readwise 现在是三个不同颜色」不必再靠肉眼**——`tests/palette.test.ts` 用 Rick 真实库数据做回归，已确定性断言：三者两两不同（:65-67）、且色值精确到 `#eca2a2` 这类**按 three 实测取的出处值**（:73），另有「≤9 个全不撞」「>9 个回收色相时撞最小的几个」「被 colorGroups 覆盖的不占槽」等 9 条。**故 Rick 手动只需过 ①③④⑤⑥⑦ 六项**（面板列出 14 个文件夹、点 chip 灭星、hover「只看」、「全部显示」的出现条件、`-file:Index` 与图例 AND、重启后状态持久）——这六项都是 Obsidian 内的真实交互，测试覆盖不到。
+
+### 未尽事项与已知问题（本轮未动，全部卡在人）
+- **0.4.1 仍未发**：manifest 还是 0.4.0，商店无推送。发版＝bump → 合 main → 打 tag → CI，属**对外发布，须 Rick 确认**，且不该在眼验前发（#9/#11 都是视觉改动，测试绿 ≠ 看起来对）。
+- **眼验仍未做**：computer-use 授权被拒；插件跑在 Obsidian（Electron），浏览器预览替代不了。`demo/*.html` 是手搓的近似预览、色值靠人工从 three 抄进去（曾算错一次），**不能拿它当眼验证据**。
+- 压着的两条回复（PR #10 回复+关闭、issue #9 关闭）跟着发版走；issue #11 的过时口径回复待 Rick 授权。
+- Tag Lens（#7 / PR #8）等 @tzhengus 回话；issue #6 鼠标残影等复现信息。
+
+### 文件级变更清单
+仅本文件与 `docs/社区巡检.md`（记录验证结果）。**零代码改动**，`dist/` 为构建产物（gitignored）。
+
+---
+
 ## 2026-07-15（三）· 推翻过滤的产品判断：改为可点的文件夹图例 + 修掉配色撞色
 
 ### 做了什么

@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-07-15（续）· 0.5.0 起步：笔记过滤 #11（代码完成，未眼验）
+
+### 做了什么
+巡检的 4 条回复发出去后，接 0.5.0。表上两项里 Tag Lens 卡在等 @tzhengus 回话，能动的只有 **#11 笔记过滤**，已完成（分支 `fix/graph-fit`，提交 f7b60b6）。
+
+面板新增**「过滤」分区并置顶**，查询框 + 未解析/孤儿/标签三个开关从页脚「高级」搬上来同住。语法是 core Search 的子集：裸词 / `file:` / `path:` / `-` 取反 / `"引号短语"` / 隐式 AND。
+
+### 关键决策与被否决的备选
+- **面板 IA 走「方向 B·提升」**（Rick 在活的 A/B demo 上拍板）：那三个开关本质就是过滤器（决定什么进图），不该和画质一起埋在页脚折叠区；搬完「高级」只剩画质这类真·高级项。被否决＝方向 A「过滤框塞进高级、什么都不搬」（零破坏，但把主功能埋在默认折叠的页脚）。代价：动了老用户熟悉的位置。
+- **不做正文搜索**（核心 Graph View 有，我们没有）：那要每次按键读全库正文，3.2k 笔记做不到即时反馈，撞性能纪律。**这是与核心 Graph View 的真实能力差**，已在两份 README 里写明边界，不假装等同。
+- **不做 regex / OR / 括号 / `tag:`**：无真实用例（YAGNI）。`tag:` 还会和既有 `showTags` 的语义纠缠。
+- **过滤器做成 buildGraph 之前的纯函数**（`src/data/noteFilter.ts`，`FileRecord[] → FileRecord[]`）：被滤掉的笔记连同指向它的边自然消失（buildGraph 靠 `indexById` 查不到就丢边），故零渲染层耦合、可单测。TFile 结构上已满足 `FilterableRecord`，**先过滤再 map** —— 被滤掉的笔记不付 `getFileCache` 的钱也不进对象分配。
+- **300ms 防抖**：每次生效要重建图 + 重热布局，逐键会打死大库。另外解析后**比较词表而非原串**，`file:a` 与 `file:  a` 语义相同就不白重建。空查询直接返回原数组不复制。
+- **文案克制（偏离了 demo）**：demo 里有「显示 8/11 篇」，实现时删了——面板头部本来就在显示笔记数，查询框里有字本身就是「过滤生效中」的信号，那行属重复文案。placeholder 也不写「过滤笔记…」（分区标题已经说了），改成一个可用的真实查询 `Index  -file:Draft` 把语法教掉，完整语法进 `title` 悬浮。**只保留零匹配提示**——整个 3D 视图空掉会像崩了，这个不属于「用户简单一试即可低成本发现」。
+- **`filter.syntax` 没进常驻「?」帮助**：那个帮助的标题是「How to navigate」，是讲导航手势的，塞面板语法进去是硬撑它的范围。
+
+### 当前状态
+分支 `fix/graph-fit`（现含 0.4.1 的 #9 修复 + #11 过滤两个提交）：**62 测试通过 / tsc 通过 / lint 0 error**，已 `npm run dev` 部署到 dev-vault。main 未动，0.4.1 与 0.5.0 都未发。
+
+### 未尽事项与已知问题
+- **⚠️ 面板渲染未眼验**：computer-use 请求 Obsidian 授权被拒，两次改动（#9 居中、#11 过滤分区）都只有静态校验。**Rick 手动确认清单**：① 面板顶部出现「过滤」分区且默认展开；② 三个开关已从「高级」消失、出现在「过滤」里，「高级」只剩画质 + fps 行；③ 输入 `-file:Index` 后图变少、头部笔记数跟着变；④ 输入乱码（零匹配）时出现橙色「没有笔记匹配这个过滤」而不是静默空图；⑤ ✕ 清空按钮、输入框内按 Esc 清空且不会取消节点选中；⑥ 重启 Obsidian 后过滤查询仍在（持久化）。
+- **德/意/西/葡四语的过滤文案是我译的**，无母语校验（0.2.2 的六语是走 workflow + 母语 QA 出的，这次没有）。有错等社区报。
+- **过滤 + 布局的交互未实测**：过滤后节点集变化 → 走既有的身份保持合并 + 0.3 低温重热路径。理论上正确（与 showOrphans 切换同路径），但大库上连打关键词反复重热的观感没测过。
+- 0.4.1 仍卡在 #9 的眼验；两条压着没发的回复（PR #10、关闭 #9）也跟着卡。
+
+### 文件级变更清单
+- 新增：`src/data/noteFilter.ts`（解析器 + 匹配器，纯函数）、`tests/noteFilter.test.ts`（17 测试）
+- 改动：`GraphStore`（+`filterQuery` 字段 / `setFilterQuery` / `isFiltered` / init 加参 / rebuild 先过滤后 map / `sameQuery` 词表比较）、`ControlPanel`（+`buildFilterSection` 置顶分区、三个开关从 advBody 迁出、+`setFilterEmpty`、回调 +`onFilter`）、`GraphController`（+`filterSoon` 300ms 防抖、onDataChanged 更新零匹配提示、init 传 filterQuery）、`settings`（+`filterQuery` 字段 + 默认 `''` + merge 兼容）、`styles.css`（+`.gx-filter*`）、`i18n×6`（+`panel.sec.filter` / `filter.placeholder|syntax|clear|none`）、`README×2`（Highlights + 过滤语法表 + 「不搜正文」边界）、`tests/settingsMerge.test.ts`（+3 迁移测试）
+- 删除：`demo/filter-demo.html`（A/B 决策工具，方向 B 拍板后删，避免与真面板漂移）
+
 ## 2026-07-15 · 第 1 轮社区巡检：合入外部修复 #10（待眼验），4 条回复待发
 
 ### 做了什么

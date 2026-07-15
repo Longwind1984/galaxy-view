@@ -29,6 +29,7 @@ import { linkColor, fallbackColorFn } from './palette';
 import type { NodeColorFn } from './palette';
 import { buildFieldStars, buildStarfield, disposeStarfield, Twinkler } from './starfield';
 import { fillLinkPositions, segsFor } from './linkCurves';
+import { fitGraphPositions, GRAPH_FIT_RADIUS_FACTOR } from './graphTransform';
 import { ClusterClouds, NebulaDome } from './nebula';
 import type { VisualTokens } from './presets';
 import type { QualityTier } from '../quality/tiers';
@@ -92,7 +93,12 @@ export class AggregateRenderer {
 	private revealBuf: Float32Array = new Float32Array(0);
 
 	private data: GraphData = { nodes: [], links: [] };
+	/** 力学模拟的原始坐标（Worker 回写 / 暖启动缓存的单一真相，只读不改） */
 	private positions: Float32Array = new Float32Array(0);
+	/** 显示坐标：positions 经居中/收缩后的副本；所有渲染与拾取只看这一份 */
+	private renderPositions: Float32Array = new Float32Array(0);
+	/** fitGraphPositions 的加权用度数，随 setData 重建 */
+	private fitWeights: Float32Array = new Float32Array(0);
 	private sizes: Float32Array = new Float32Array(0);
 	private dimCurrent: Float32Array = new Float32Array(0);
 	private dimTarget: Float32Array = new Float32Array(0);
@@ -156,8 +162,8 @@ export class AggregateRenderer {
 		const n = data.nodes.length;
 
 		// —— 节点 ——
-		const nodePos = new Float32Array(n * 3);
-		nodePos.set(positions.subarray(0, n * 3));
+		this.renderPositions = new Float32Array(n * 3);
+		this.fitWeights = new Float32Array(n);
 		const ghost = new Float32Array(n);
 		this.sizes = new Float32Array(n);
 		this.dimCurrent = new Float32Array(n).fill(1);
@@ -166,10 +172,12 @@ export class AggregateRenderer {
 			const node = data.nodes[i];
 			if (!node) continue;
 			ghost[i] = node.unresolved ? 1 : 0;
+			this.fitWeights[i] = node.degree;
 			this.sizes[i] = this.computeSize(node);
 		}
+		this.fitPositions();
 		this.nodeGeometry = new BufferGeometry();
-		this.nodeGeometry.setAttribute('position', new BufferAttribute(nodePos, 3));
+		this.nodeGeometry.setAttribute('position', new BufferAttribute(this.renderPositions, 3));
 		this.nodeGeometry.setAttribute('color', new BufferAttribute(new Float32Array(n * 3), 3));
 		this.nodeGeometry.setAttribute('aSize', new BufferAttribute(this.sizes, 1));
 		this.nodeGeometry.setAttribute('aGhost', new BufferAttribute(ghost, 1));
@@ -275,7 +283,7 @@ export class AggregateRenderer {
 		if (!this.ghostGeometry || !this.ghostSegments) return;
 		const attr = this.ghostGeometry.getAttribute('position') as BufferAttribute;
 		const arr = attr.array as Float32Array;
-		const pos = this.positions;
+		const pos = this.renderPositions;
 		for (let i = 0; i < this.ghostLinks.length; i++) {
 			const l = this.ghostLinks[i];
 			if (!l) continue;
@@ -330,9 +338,14 @@ export class AggregateRenderer {
 	playReveal(durMs = 2600): void {
 		const n = this.data.nodes.length;
 		if (n === 0) return;
+		this.fitPositions();
 		let maxR = 1;
 		for (let i = 0; i < n; i++) {
-			const r = Math.hypot(this.positions[i * 3] ?? 0, this.positions[i * 3 + 1] ?? 0, this.positions[i * 3 + 2] ?? 0);
+			const r = Math.hypot(
+				this.renderPositions[i * 3] ?? 0,
+				this.renderPositions[i * 3 + 1] ?? 0,
+				this.renderPositions[i * 3 + 2] ?? 0,
+			);
 			if (r > maxR) maxR = r;
 		}
 		if (this.revealBuf.length < n * 3) this.revealBuf = new Float32Array(n * 3);
@@ -351,7 +364,7 @@ export class AggregateRenderer {
 		}
 		const n = this.data.nodes.length;
 		const buf = this.revealBuf;
-		const pos = this.positions;
+		const pos = this.renderPositions;
 		for (let i = 0; i < n; i++) {
 			const x = pos[i * 3] ?? 0;
 			const y = pos[i * 3 + 1] ?? 0;
@@ -422,16 +435,29 @@ export class AggregateRenderer {
 		});
 	}
 
-	/** 布局热时每帧调用：节点直拷，链接按索引 gather */
+	/**
+	 * 把力学坐标算成显示坐标写进 renderPositions。
+	 * nodeGeometry 的 position 属性直接绑的就是这个 buffer（见 setData），所以写完只需 needsUpdate。
+	 */
+	private fitPositions(): void {
+		fitGraphPositions(
+			this.positions,
+			this.renderPositions,
+			this.data.nodes.length,
+			this.graphRadiusEstimate * GRAPH_FIT_RADIUS_FACTOR,
+			this.fitWeights,
+		);
+	}
+
+	/** 布局热时每帧调用：先把链接密集的主体居中收进球壳，再按索引 gather 链接 */
 	updatePositions(): void {
 		if (!this.nodeGeometry || !this.linkGeometry) return;
-		const n = this.data.nodes.length;
+		this.fitPositions();
 		const nodeAttr = this.nodeGeometry.getAttribute('position') as BufferAttribute;
-		(nodeAttr.array as Float32Array).set(this.positions.subarray(0, n * 3));
 		nodeAttr.needsUpdate = true;
 
 		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;
-		fillLinkPositions(linkAttr.array as Float32Array, this.positions, this.data.links, this.linkK, this.linkCurvature);
+		fillLinkPositions(linkAttr.array as Float32Array, this.renderPositions, this.data.links, this.linkK, this.linkCurvature);
 		linkAttr.needsUpdate = true;
 		this.updateSelPositions();
 		this.updateGhostPositions();
@@ -515,7 +541,7 @@ export class AggregateRenderer {
 	private updateSelPositions(): void {
 		if (!this.selGeometry || this.selLinks.length === 0) return;
 		const attr = this.selGeometry.getAttribute('position') as BufferAttribute;
-		fillLinkPositions(attr.array as Float32Array, this.positions, this.selLinks, this.linkK, this.linkCurvature);
+		fillLinkPositions(attr.array as Float32Array, this.renderPositions, this.selLinks, this.linkK, this.linkCurvature);
 		attr.needsUpdate = true;
 	}
 
@@ -600,7 +626,7 @@ export class AggregateRenderer {
 	/** 布局沉降时刻由 GraphController 调用：重算簇质心/散布并重染 */
 	refreshClusterClouds(): void {
 		if (!this.clouds || this.data.nodes.length === 0) return;
-		this.clouds.rebuild(this.data, this.positions, this.graphRadiusEstimate);
+		this.clouds.rebuild(this.data, this.renderPositions, this.graphRadiusEstimate);
 		const fallback = new Color('#7a87a8');
 		this.clouds.recolor((i) => {
 			const nd = this.data.nodes[i];
@@ -772,7 +798,11 @@ export class AggregateRenderer {
 
 	/** 投影到屏幕逻辑像素；z>1 = 在镜头后 */
 	projectNode(i: number, w: number, h: number): { x: number; y: number; behind: boolean } {
-		this.projVec.set(this.positions[i * 3] ?? 0, this.positions[i * 3 + 1] ?? 0, this.positions[i * 3 + 2] ?? 0);
+		this.projVec.set(
+			this.renderPositions[i * 3] ?? 0,
+			this.renderPositions[i * 3 + 1] ?? 0,
+			this.renderPositions[i * 3 + 2] ?? 0,
+		);
 		this.projVec.project(this.camera);
 		return {
 			x: ((this.projVec.x + 1) / 2) * w,
@@ -802,7 +832,11 @@ export class AggregateRenderer {
 	}
 
 	nodePosition(i: number, out: Vector3): Vector3 {
-		return out.set(this.positions[i * 3] ?? 0, this.positions[i * 3 + 1] ?? 0, this.positions[i * 3 + 2] ?? 0);
+		return out.set(
+			this.renderPositions[i * 3] ?? 0,
+			this.renderPositions[i * 3 + 1] ?? 0,
+			this.renderPositions[i * 3 + 2] ?? 0,
+		);
 	}
 
 	nodeColorHex(i: number): string {
@@ -811,7 +845,11 @@ export class AggregateRenderer {
 	}
 
 	cameraDistanceTo(i: number): number {
-		this.projVec.set(this.positions[i * 3] ?? 0, this.positions[i * 3 + 1] ?? 0, this.positions[i * 3 + 2] ?? 0);
+		this.projVec.set(
+			this.renderPositions[i * 3] ?? 0,
+			this.renderPositions[i * 3 + 1] ?? 0,
+			this.renderPositions[i * 3 + 2] ?? 0,
+		);
 		return this.camera.position.distanceTo(this.projVec);
 	}
 

@@ -64,3 +64,22 @@ describe('mergeSettings v0.4 兼容（曲线 + 深空背景）', () => {
 		expect(roundTrip.customPresets[0]!.nameEn).toBe('我的深空调色');
 	});
 });
+
+describe('mergeSettings v0.5 兼容（笔记过滤 #11）', () => {
+	it('0.4.x 存档无 filterQuery → 空串（不过滤），老用户不会开图就少笔记', () => {
+		const m = mergeSettings({ showTags: true, showOrphans: false });
+		expect(m.filterQuery).toBe('');
+		expect(m.showTags).toBe(true); // 既有字段不受影响
+		expect(m.showOrphans).toBe(false);
+	});
+
+	it('存档里的 filterQuery 原样保留（含引号与取反）', () => {
+		const m = mergeSettings({ filterQuery: '-file:"Index" path:Daily' });
+		expect(m.filterQuery).toBe('-file:"Index" path:Daily');
+	});
+
+	it('filterQuery 类型不对 → 回落默认而不是把非串塞进去', () => {
+		expect(mergeSettings({ filterQuery: 42 }).filterQuery).toBe('');
+		expect(mergeSettings({ filterQuery: null }).filterQuery).toBe('');
+	});
+});

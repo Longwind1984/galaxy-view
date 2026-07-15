@@ -1,7 +1,7 @@
 import type { App } from 'obsidian';
 import { Notice, Platform, debounce } from 'obsidian';
 import { Spherical, Vector3 } from 'three';
-import type { BenchResult } from '../types';
+import type { BenchResult, GraphNode } from '../types';
 import type { GalaxySettings } from '../settings';
 import { DEFAULT_SETTINGS, toLayoutParams } from '../settings';
 import { readGraphColorGroups } from '../settings/graphJsonImport';
@@ -14,7 +14,7 @@ import type { LayoutEngine } from '../layout/LayoutEngine';
 import { MainThreadForceLayout } from '../layout/MainThreadForceLayout';
 import { WorkerForceLayout } from '../layout/WorkerForceLayout';
 import { AggregateRenderer } from '../render/AggregateRenderer';
-import { makeNodeColorFn, fallbackColorFn } from '../render/palette';
+import { makeNodeColorFn, fallbackColorFn, assignFolderHues, folderCoveredByGroups, type NodeColorFn } from '../render/palette';
 import { DAYLIGHT, DEEP_SPACE } from '../render/presets';
 import { CameraDirector } from '../interactions/CameraDirector';
 import { TourDirector } from '../tour/TourDirector';
@@ -67,6 +67,10 @@ export class GraphController {
 	private saveSoon: () => void;
 	/** 结构性操作（存/删/移/改名预设）立即写盘，绕开 800ms 防抖——避免存完立刻退出丢失 */
 	private saveNow: () => void;
+	/** 过滤查询防抖（#11）：每次生效都要重建图 + 重热布局，逐键触发会把大库打死 */
+	private filterSoon: (q: string) => void;
+	/** 当前生效的节点调色函数；面板图例要用它取真实颜色，故在此留一份而不只丢给 renderer */
+	private colorFn: NodeColorFn = fallbackColorFn;
 	private tier: QualityTier = TIERS.high;
 	private autoLow = false; // auto 档当前是否降到 low（可双向）
 	private lowFpsChecks = 0;
@@ -84,6 +88,8 @@ export class GraphController {
 		this.store = new GraphStore(app);
 		this.saveNow = saveSettings;
 		this.saveSoon = debounce(saveSettings, 800, true);
+		// 300ms：短到打完就出结果，长到连打不会每键重建（3.2k 笔记的库上一次重建+重热是几十 ms 起）
+		this.filterSoon = debounce((q: string) => this.store.setFilterQuery(q), 300, false);
 	}
 
 	get counts(): { nodes: number; links: number } {
@@ -92,7 +98,13 @@ export class GraphController {
 
 	async start(): Promise<void> {
 		await this.store.ensureCacheReady();
-		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, this.settings.showTags, () => this.onDataChanged());
+		this.store.init(
+			this.settings.showUnresolved,
+			this.settings.showOrphans,
+			this.settings.showTags,
+			{ hiddenFolders: this.settings.hiddenFolders, query: this.settings.filterQuery },
+			() => this.onDataChanged(),
+		);
 		this.store.rebuild(false);
 
 		// 暖启动：用上次沉降坐标覆盖种子 → 重开即成形
@@ -103,9 +115,7 @@ export class GraphController {
 		this.graphRadius = seedRadius(this.store.data.nodes.length) * 1.6;
 		const renderer = new AggregateRenderer(container, this.graphRadius);
 		this.renderer = renderer;
-		renderer.setColorFn(
-			this.settings.colorGroups.length > 0 ? makeNodeColorFn(this.settings.colorGroups) : fallbackColorFn,
-		);
+		this.applyColorFn();
 		renderer.setData(this.store.data, this.store.positions);
 		renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.initLayout(warm ? 0.06 : 1);
@@ -292,13 +302,50 @@ export class GraphController {
 
 	// ---------- 数据 ----------
 
+	/**
+	 * 唯一的调色入口：先按图例顺序发回退色相（修撞色），再落给 renderer，同时留一份给面板图例取色。
+	 * 不传 fn 时按当前 colorGroups 自动选（有组走组，无组走文件夹回退）。
+	 */
+	private applyColorFn(fn?: NodeColorFn): void {
+		const groups = this.settings.colorGroups;
+		// 色相按笔记数排名发、且只发给没被配色组吃掉的文件夹——必须在 colorFn 生效前做完
+		assignFolderHues(
+			this.store.folders.map((f) => f.folder),
+			(folder) => folderCoveredByGroups(folder, groups),
+		);
+		this.colorFn = fn ?? (groups.length > 0 ? makeNodeColorFn(groups) : fallbackColorFn);
+		this.renderer?.setColorFn(this.colorFn);
+		this.panel?.refreshFolders(); // 色相可能重发了，图例的点要跟着变
+	}
+
+	/** 顶层文件夹在图上的真实颜色，喂给面板图例——图例跟图对不上就不是图例而是装饰 */
+	private folderHex(folder: string): string {
+		if (folder === '') return '#9aa4b2'; // 根目录 = palette 的 NEUTRAL
+		// 探针节点：配色组按 node.id 的 path: 前缀匹配，故 id 要带上文件夹前缀
+		const probe: GraphNode = {
+			id: `${folder}/`,
+			name: folder,
+			folderTop: folder,
+			degree: 0,
+			inDegree: 0,
+			outDegree: 0,
+			fileSize: 0,
+			unresolved: false,
+			tag: false,
+		};
+		return `#${this.colorFn(probe).getHexString()}`;
+	}
+
 	private onDataChanged(): void {
 		if (!this.renderer) return;
 		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
 		this.clearSelection();
+		this.applyColorFn(); // 文件夹集合可能变了 → 重发色相 + 刷图例
 		this.renderer.setData(this.store.data, this.store.positions);
 		this.renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.overlay?.setData(this.store.data, this.graphRadius);
+		// 过滤到空图时给一句——整个 3D 视图空掉会像崩了，这个不是「一试就懂」的
+		this.panel?.setFilterEmpty(this.store.isFiltered() && this.store.data.nodes.length === 0);
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
 		this.initLayout(0.3);
 		this.wasSettled = false;
@@ -441,7 +488,7 @@ export class GraphController {
 		const theme = COLOR_THEMES.find((t) => t.id === p.theme);
 		if (theme && this.settings.colorGroups.length > 0) {
 			const temp = this.settings.colorGroups.map((g, i) => ({ ...g, color: theme.colors[i % theme.colors.length] ?? g.color }));
-			r.setColorFn(makeNodeColorFn(temp));
+			this.applyColorFn(makeNodeColorFn(temp));
 			r.recolor();
 		}
 	}
@@ -459,7 +506,7 @@ export class GraphController {
 		r.setSizeMode(s.look.sizeBy);
 		r.setStarfieldEnabled(s.showStarfield);
 		r.setSpace(s.space);
-		r.setColorFn(s.colorGroups.length > 0 ? makeNodeColorFn(s.colorGroups) : fallbackColorFn);
+		this.applyColorFn();
 		r.recolor();
 	}
 
@@ -581,7 +628,7 @@ export class GraphController {
 		}
 		groups.forEach((g, i) => (g.color = theme.colors[i % theme.colors.length] ?? g.color));
 		this.settings.colorTheme = theme.id;
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
+		this.applyColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
 		this.syncNebulaTint();
 		this.saveSoon();
@@ -610,7 +657,7 @@ export class GraphController {
 		}
 		groups.forEach((g, i) => (g.color = colors[i] ?? g.color));
 		this.settings.colorTheme = 'custom';
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
+		this.applyColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
 		this.syncNebulaTint();
 		this.saveSoon();
@@ -638,7 +685,7 @@ export class GraphController {
 			return;
 		}
 		this.settings.colorGroups = groups;
-		this.renderer?.setColorFn(makeNodeColorFn(groups));
+		this.applyColorFn(makeNodeColorFn(groups));
 		this.renderer?.recolor();
 		this.syncNebulaTint();
 		this.saveSoon();
@@ -902,6 +949,14 @@ export class GraphController {
 				this.store.setIncludeTags(on);
 				this.saveSoon();
 			},
+			onHiddenFolders: (hidden) => {
+				this.store.setHiddenFolders(hidden); // 点一下就重建，不防抖
+				this.saveSoon();
+			},
+			onFilter: (q) => {
+				this.filterSoon(q); // 逐键会重建图 + 重跑布局，必须防抖
+				this.saveSoon();
+			},
 			onStarfield: (on) => {
 				this.renderer?.setStarfieldEnabled(on);
 				this.saveSoon();
@@ -926,6 +981,8 @@ export class GraphController {
 				this.settings.panelSections[id] = open;
 				this.saveSoon();
 			},
+			getFolders: () => this.store.folders,
+			folderColorHex: (f) => this.folderHex(f),
 			onLanguage: (lang) => this.setLanguage(lang),
 			onPanelWidth: (w) => {
 				this.settings.panelWidth = w;

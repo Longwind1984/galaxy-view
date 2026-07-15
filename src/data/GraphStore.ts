@@ -2,6 +2,7 @@ import type { App } from 'obsidian';
 import { Component, debounce, getAllTags } from 'obsidian';
 import type { GraphData } from '../types';
 import { buildGraph } from './buildGraph';
+import { applyFilter, folderStats, isFilterActive, parseFilterQuery, type FilterQuery, type NoteFilter } from './noteFilter';
 import { buildAdjacency } from './Adjacency';
 import type { Adjacency } from './Adjacency';
 import { seedPosition, seedRadius } from './seed';
@@ -30,6 +31,13 @@ export class GraphStore extends Component {
 	private includeUnresolved = false;
 	private includeOrphans = true;
 	private includeTags = false;
+	/** 笔记过滤（#11）：文件夹显隐（图例，主）＋ 文本查询（逃生口，次） */
+	private filter: NoteFilter = { hiddenFolders: new Set(), query: [] };
+	/**
+	 * 图例数据：顶层文件夹 → 笔记数，按数量降序。**由未过滤的全量文件算**——
+	 * 否则点灭一个文件夹会让其他 chip 的数字跟着跳。也是配色色相的分配依据。
+	 */
+	folders: { folder: string; count: number }[] = [];
 	private nodeCap: number | null = null;
 	private linkCap: number | null = null;
 	private onChanged: (() => void) | null = null;
@@ -45,10 +53,18 @@ export class GraphStore extends Component {
 	}
 
 	/** dataChanged 在防抖重建完成后触发（调用方负责 reheat + 重建渲染缓冲） */
-	init(includeUnresolved: boolean, includeOrphans: boolean, includeTags: boolean, onChanged: () => void): void {
+	init(
+		includeUnresolved: boolean,
+		includeOrphans: boolean,
+		includeTags: boolean,
+		filter: { hiddenFolders: string[]; query: string },
+		onChanged: () => void,
+	): void {
 		this.includeUnresolved = includeUnresolved;
 		this.includeOrphans = includeOrphans;
 		this.includeTags = includeTags;
+		// 走字段而非 setter：后者会自己触发一次重建，而调用方紧接着就要 rebuild(false)
+		this.filter = { hiddenFolders: new Set(filter.hiddenFolders), query: parseFilterQuery(filter.query) };
 		this.onChanged = onChanged;
 		const rebuildSoon = debounce(() => this.rebuild(true), 800, true);
 		this.registerEvent(this.app.metadataCache.on('resolved', rebuildSoon));
@@ -93,6 +109,30 @@ export class GraphStore extends Component {
 		this.rebuild(true);
 	}
 
+	/**
+	 * 文本查询（#11 的逃生口）。调用方负责防抖——每次重建都要重跑布局，不能逐键触发。
+	 * 解析后比较词表而非原串：`file:a` 与 `file:  a` 语义相同就不该白重建一次。
+	 */
+	setFilterQuery(raw: string): void {
+		const next = parseFilterQuery(raw);
+		if (sameQuery(next, this.filter.query)) return;
+		this.filter = { hiddenFolders: this.filter.hiddenFolders, query: next };
+		this.rebuild(true);
+	}
+
+	/** 文件夹显隐（#11 的主交互：可点图例）。点一下就重建，无需防抖 */
+	setHiddenFolders(hidden: readonly string[]): void {
+		const next = new Set(hidden);
+		const cur = this.filter.hiddenFolders;
+		if (next.size === cur.size && [...next].every((f) => cur.has(f))) return;
+		this.filter = { hiddenFolders: next, query: this.filter.query };
+		this.rebuild(true);
+	}
+
+	isFiltered(): boolean {
+		return isFilterActive(this.filter);
+	}
+
 	setShowGhostEdges(v: boolean): void {
 		if (v === this.showGhostEdges) return;
 		this.showGhostEdges = v;
@@ -132,7 +172,11 @@ export class GraphStore extends Component {
 	/** preservePositions=false 用于基准（全新确定性种子 → 完整冷布局） */
 	rebuild(preservePositions: boolean): void {
 		const withTags = this.includeTags; // 仅开启时才取标签，省掉每次重建的 getFileCache 开销
-		const files = this.app.vault.getMarkdownFiles().map((f) => {
+		const all = this.app.vault.getMarkdownFiles();
+		this.folders = folderStats(all); // 图例：全量算，不受过滤影响（否则 chip 数字会互相跳）
+		// TFile 自带 path/basename，结构上就满足 FilterableRecord —— 先过滤再 map，
+		// 被滤掉的笔记既不付 getFileCache 的钱，也不进对象分配
+		const files = applyFilter(all, this.filter).map((f) => {
 			const rec: { path: string; basename: string; size: number; tags?: string[] } = {
 				path: f.path,
 				basename: f.basename,
@@ -181,4 +225,15 @@ export class GraphStore extends Component {
 		this.onChanged?.();
 		void this.refreshGhost(); // 顺带异步重读文件：接受建议→真实链接落盘→重建时虚线自然消失
 	}
+}
+
+/** 词表等价判断：语义相同的两次输入（`file:a` / `file:  a`）不该白触发一次重建 */
+function sameQuery(a: FilterQuery, b: FilterQuery): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		const x = a[i];
+		const y = b[i];
+		if (!x || !y || x.field !== y.field || x.value !== y.value || x.negate !== y.negate) return false;
+	}
+	return true;
 }

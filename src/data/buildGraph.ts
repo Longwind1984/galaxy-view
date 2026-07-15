@@ -22,7 +22,8 @@ export interface BuildOptions {
 	linkCap?: number | null;
 }
 
-function topFolder(path: string): string {
+/** 顶层文件夹＝配色分组键，也是「过滤」图例的粒度；根目录下的笔记返回 '' */
+export function topFolder(path: string): string {
 	const idx = path.indexOf('/');
 	return idx === -1 ? '' : path.slice(0, idx);
 }

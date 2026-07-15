@@ -48,6 +48,10 @@ export interface GalaxySettings {
 	showOrphans: boolean;
 	/** 标签作为节点：共享 tag 的笔记通过标签星成簇 */
 	showTags: boolean;
+	/** 过滤·主：被点灭的顶层文件夹（面板图例）；空数组=全显示 */
+	hiddenFolders: string[];
+	/** 过滤·逃生口：文本查询，只给图例表达不了的横切模式（散落各处的 Index 等）。语法见 data/noteFilter.ts */
+	filterQuery: string;
 	/** 幽灵边：Constellation 伴侣插件的待确认链接建议（虚线；接受后自动变实线） */
 	showGhostEdges: boolean;
 	/** 深空星空背景开关（用户选项） */
@@ -88,6 +92,8 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	showUnresolved: false,
 	showOrphans: true,
 	showTags: false,
+	hiddenFolders: [],
+	filterQuery: '',
 	// 默认关：ghost 幽灵边依赖 Constellation 伴侣插件（尚未正式发布），随 0.4.0 发布但先不打扰普通用户
 	showGhostEdges: false,
 	showStarfield: true,
@@ -157,6 +163,13 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 			typeof (sv as Record<string, unknown>)['showTags'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showTags'] as boolean)
 				: d.showTags,
+		hiddenFolders: Array.isArray((sv as Record<string, unknown>)['hiddenFolders'])
+			? ((sv as Record<string, unknown>)['hiddenFolders'] as unknown[]).filter((x): x is string => typeof x === 'string')
+			: d.hiddenFolders,
+		filterQuery:
+			typeof (sv as Record<string, unknown>)['filterQuery'] === 'string'
+				? ((sv as Record<string, unknown>)['filterQuery'] as string)
+				: d.filterQuery,
 		showGhostEdges:
 			typeof (sv as Record<string, unknown>)['showGhostEdges'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showGhostEdges'] as boolean)

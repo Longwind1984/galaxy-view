@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Galaxy View · 过滤（#11）· 最终形态预览</title>
+<style>
+  :root {
+    --bg: #05060c; --panel-bg: rgba(15,18,29,0.86); --panel-border: rgba(140,160,210,0.16);
+    --ink: #e7ecf6; --ink-dim: #9aa6c0; --ink-faint: #626e8a;
+    --accent: #7f9bff; --accent-soft: rgba(127,155,255,0.16); --accent-line: rgba(127,155,255,0.55);
+    --track: rgba(140,150,180,0.16); --chip: rgba(140,150,180,0.09); --warn: #ffb95c;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { font-family: var(--font); color: var(--ink);
+    background: radial-gradient(1100px 760px at 60% 26%, #0c1730 0%, #080d1e 46%, var(--bg) 100%); }
+  .page { padding: 20px 24px 44px; }
+  h1 { font-size: 15px; font-weight: 700; margin: 0 0 3px; }
+  .lede { font-size: 12px; color: var(--ink-dim); margin: 0 0 16px; line-height: 1.55; max-width: 900px; }
+  .lede b { color: var(--ink); font-weight: 600; }
+  .lede code { font-family: var(--mono); font-size: 11px; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+
+  .cols { display: flex; gap: 26px; align-items: flex-start; flex-wrap: wrap; }
+  .col { width: 520px; }
+  .col-h { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-bottom: 3px; }
+  .col-sub { font-size: 11.5px; color: var(--ink-faint); line-height: 1.5; margin-bottom: 11px; min-height: 50px; }
+  .stage { display: flex; gap: 10px; align-items: flex-start; }
+
+  .panel { width: 246px; flex: none; background: var(--panel-bg); backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-border); border-radius: 13px; padding: 10px; box-shadow: 0 16px 44px rgba(0,0,0,.5); }
+  .p-head { display: flex; align-items: center; gap: 6px; }
+  .p-title { font-size: 12.5px; font-weight: 700; }
+  .p-head .spacer { flex: 1; }
+  .p-stat { font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+  .sec { border-top: 1px solid rgba(140,150,180,.10); margin-top: 10px; padding-top: 8px; }
+  .sec-h { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--ink-dim); }
+  .sec-h .caret { font-size: 9px; color: var(--ink-faint); }
+  .sec-h .spacer { flex: 1; }
+  .sec-h .act { font-size: 10px; color: var(--accent); cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .sec:hover .sec-h .act { opacity: 1; }
+
+  /* 文件夹图例 chips */
+  .chips { margin-top: 8px; }
+  .chip { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 6px; cursor: pointer;
+    font-size: 11.5px; color: var(--ink); user-select: none; }
+  .chip:hover { background: var(--accent-soft); }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 6px currentColor; }
+  .chip .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .ct { font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .chip .solo { font-size: 9.5px; color: var(--accent); opacity: 0; padding-left: 2px; }
+  .chip:hover .solo { opacity: 1; }
+  .chip.off { opacity: .34; }
+  .chip.off .dot { box-shadow: none; background: transparent !important; border: 1px solid var(--ink-faint); }
+
+  .esc { margin-top: 9px; border-top: 1px dashed rgba(140,150,180,.16); padding-top: 8px; }
+  .esc-t { font-size: 10.5px; color: var(--ink-faint); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  .esc-t:hover { color: var(--ink-dim); }
+  .esc-b { display: none; margin-top: 7px; }
+  .esc-b.open { display: block; }
+  .esc-b input { width: 100%; font-family: var(--mono); font-size: 11px; color: var(--ink);
+    background: rgba(0,0,0,.3); border: 1px solid var(--panel-border); border-radius: 7px; padding: 5px 8px; outline: none; }
+  .esc-b input:focus { border-color: var(--accent-line); }
+  .esc-b input::placeholder { color: var(--ink-faint); }
+
+    background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; color: #dfe6ff; }
+
+  .cv-wrap { position: relative; flex: 1; }
+  canvas { display: block; border-radius: 11px; background: rgba(4,6,14,.55); border: 1px solid rgba(140,160,210,.10); cursor: crosshair; }
+    border-radius: 8px; padding: 4px; box-shadow: 0 12px 32px rgba(0,0,0,.6); display: none; min-width: 148px; }
+
+  .note { font-size: 11px; color: var(--ink-faint); line-height: 1.5; margin-top: 12px; }
+  .note b { color: var(--ink-dim); font-weight: 600; }
+  .find { margin-top: 22px; max-width: 900px; font-size: 11.5px; color: var(--ink-dim); line-height: 1.6;
+    border-left: 2px solid var(--warn); padding: 2px 0 2px 12px; }
+  .find b { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>过滤（#11）· 最终形态预览 —— 用 Rick 真实库的文件夹 / 笔记数 / 修复后的真实颜色</h1>
+  <p class="lede">
+    <b>不需要背语法</b>：点 chip＝显示/隐藏，hover 出「只看」，画布里的点实时跟着变。文本框降级成<b>兜底逃生口</b>（默认折叠），
+    只留给图例表达不了的横切场景——比如散落在所有文件夹里的 <code>Index</code>，正是 #11 提出者的原始诉求。
+    <br>这是 HTML 镜像，用于预览形态；<b>插件里的真面板需要你在 dev vault 亲自看</b>（我没有 Obsidian 授权）。
+  </p>
+
+  <div class="cols">
+    <!-- 方向 A -->
+    <div class="col">
+      <div class="col-h">过滤分区</div>
+      <div class="col-sub">图例和过滤器合一：既回答「这个颜色什么意思」（面板从来没有过图例），也回答「只给我看这块」。</div>
+      <div class="stage">
+        <div class="panel">
+          <div class="p-head"><span class="p-title">星系视图</span><span class="spacer"></span><span class="p-stat" id="statA"></span></div>
+          <div class="sec">
+            <div class="sec-h"><span class="caret">▾</span><span>过滤</span><span class="spacer"></span><span class="act" id="allA">全选</span></div>
+            <div class="chips" id="chipsA"></div>
+            <div class="esc">
+              <div class="esc-t" id="escTA"><span>＋</span><span>按名字过滤</span></div>
+              <div class="esc-b" id="escBA"><input id="qA" placeholder="Index  -file:Draft" spellcheck="false" /></div>
+            </div>
+          </div>
+        </div>
+        <div class="cv-wrap"><canvas id="cvA" width="172" height="330"></canvas></div>
+      </div>
+      <div class="note"><b>好处</b>：零语法、可发现、顺带补上了从来没有过的配色图例。<br><b>代价</b>：14 个文件夹的库里占面板高度；深层文件夹表达不了（只到顶层）。</div>
+    </div>
+
+  </div>
+
+  <div class="find">
+    <b>顺带查出并修掉的真问题</b>：你的库有 <b>14 个顶层文件夹</b>，但你从 2D 图谱导入的配色组只覆盖 9 个。剩下 5 个
+    （99Archive 545 篇、80随记 392、60流浪 93、90故纸堆 86、Readwise 68 —— 合计 <b>1184 篇 ＝ 全库 37%</b>）掉进回退调色板，
+    而它只有 9 个色相、<b>按 hash 取色</b>（与文件夹大小无关且乱序）→ 99Archive / 90故纸堆 / Readwise 撞成同一个蓝。
+    <br><br>
+    <b>已修</b>：色相改为①按笔记数排名发、②只发给<b>没被配色组吃掉</b>的文件夹（你的 9 个导入组不占槽位，剩 5 个正好各拿一个独立色相）。
+    上面图例里这 5 个点现在两两不同——那就是修复后的真实色值。这不是本次改动引入的缺陷，是图例把它暴露了出来。
+  </div>
+</div>
+
+<script>
+// —— Rick 真实库：文件夹 / 笔记数 / 生效颜色 ——
+// 前 9 个＝他从 2D 图谱导入的 colorGroups（data.json 原值）。
+// 后 5 个无配色组走回退色相，此处为**修复后**的值：按笔记数排名依次拿 hue 0/40/80/120/160，各不相撞。
+// （色值取自 three 的 setHSL(h,0.6,0.6)→getHexString——线性空间算再转 sRGB，不是朴素 HSL→RGB。）
+const FOLDERS = [
+  { name: "04AI",      n: 607, c: "#7fd0a0", src: "imported" },
+  { name: "99Archive", n: 545, c: "#eca2a2", src: "hue0" },
+  { name: "Cubox",     n: 505, c: "#9a7fe0", src: "imported" },
+  { name: "80随记",     n: 392, c: "#ecd7a2", src: "hue40" },
+  { name: "02工作",     n: 284, c: "#ffc35c", src: "imported" },
+  { name: "01学习",     n: 197, c: "#46d4dc", src: "imported" },
+  { name: "05读书",     n: 133, c: "#e8d9a0", src: "imported" },
+  { name: "30认真活着",  n: 113, c: "#d87fa8", src: "imported" },
+  { name: "60流浪",     n:  93, c: "#d7eca2", src: "hue80" },
+  { name: "06人",       n:  92, c: "#5a9bd8", src: "imported" },
+  { name: "90故纸堆",    n:  86, c: "#a2eca2", src: "hue120" },
+  { name: "Readwise",  n:  68, c: "#a2ecd7", src: "hue160" },
+  { name: "03产品",     n:  58, c: "#d05a32", src: "imported" },
+  { name: "00Meta",    n:  51, c: "#cfd8e8", src: "imported" },
+];
+const TOTAL = FOLDERS.reduce((s, f) => s + f.n, 0);
+
+// 合成一个星系：每个文件夹一个团，点数按真实占比
+function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = mulberry(7);
+const W = 172, H = 330, DOTS = 620;
+const STARS = [];
+FOLDERS.forEach((f, fi) => {
+  const k = Math.max(4, Math.round(DOTS * f.n / TOTAL));
+  const a0 = (fi / FOLDERS.length) * Math.PI * 2;
+  const rad = 26 + (fi % 4) * 17;
+  const cx = W / 2 + Math.cos(a0) * rad * 0.9, cy = H / 2 + Math.sin(a0) * rad * 1.5;
+  for (let i = 0; i < k; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), .62) * (12 + Math.sqrt(f.n) * 1.5);
+    STARS.push({ f: f.name, c: f.c, x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r * 1.25, s: .7 + rnd() * 1.5 });
+  }
+});
+
+function draw(cv, hidden) {
+  const g = cv.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  for (const s of STARS) {
+    const off = hidden.has(s.f);
+    g.globalAlpha = off ? 0.05 : 0.92;
+    g.fillStyle = off ? "#5c6478" : s.c;
+    g.beginPath(); g.arc(s.x, s.y, s.s * (off ? .6 : 1), 0, 7); g.fill();
+    if (!off) { g.globalAlpha = .1; g.beginPath(); g.arc(s.x, s.y, s.s * 3, 0, 7); g.fill(); }
+  }
+  g.globalAlpha = 1;
+}
+const shown = (hidden) => FOLDERS.filter(f => !hidden.has(f.name)).reduce((s, f) => s + f.n, 0);
+const fmt = (n) => n.toLocaleString();
+
+// —— 方向 A ——
+const hiddenA = new Set();
+const chipsEl = document.getElementById("chipsA");
+function renderA() {
+  chipsEl.textContent = "";
+  for (const f of FOLDERS) {
+    const off = hiddenA.has(f.name);
+    const c = document.createElement("div"); c.className = "chip" + (off ? " off" : "");
+    const d = document.createElement("span"); d.className = "dot"; d.style.background = f.c; d.style.color = f.c;
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = f.name;
+    const ct = document.createElement("span"); ct.className = "ct"; ct.textContent = fmt(f.n);
+    const so = document.createElement("span"); so.className = "solo"; so.textContent = "只看";
+    so.onclick = (e) => { e.stopPropagation(); hiddenA.clear(); for (const o of FOLDERS) if (o.name !== f.name) hiddenA.add(o.name); renderA(); };
+    c.append(d, nm, ct, so);
+    c.onclick = () => { off ? hiddenA.delete(f.name) : hiddenA.add(f.name); renderA(); };
+    chipsEl.appendChild(c);
+  }
+  document.getElementById("statA").textContent = `${fmt(shown(hiddenA))} / ${fmt(TOTAL)} 笔记`;
+  draw(document.getElementById("cvA"), hiddenA);
+}
+document.getElementById("allA").onclick = () => { hiddenA.clear(); renderA(); };
+document.getElementById("escTA").onclick = () => document.getElementById("escBA").classList.toggle("open");
+
+renderA();
+</script>
+</body>
+</html>

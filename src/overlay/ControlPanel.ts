@@ -41,7 +41,13 @@ export interface ControlPanelCallbacks {
 	onConnectTwo: () => void;
 	onTourSpeed: () => void;
 	onSectionToggle: (id: string, open: boolean) => void;
-	/** 笔记过滤（#11）；调用方负责防抖——每次重建都要重跑布局，不能逐键触发 */
+	/** 过滤·主：文件夹图例点击（点一下就重建，无需防抖） */
+	onHiddenFolders: (hidden: string[]) => void;
+	/** 图例数据：顶层文件夹 + 笔记数，按数量降序（全量算，不受过滤影响） */
+	getFolders: () => { folder: string; count: number }[];
+	/** 顶层文件夹在图上**真实生效**的颜色（含用户导入的 colorGroups）——图例跟图对不上就是装饰 */
+	folderColorHex: (folder: string) => string;
+	/** 过滤·逃生口：文本查询；调用方负责防抖——每次重建都要重跑布局，不能逐键触发 */
 	onFilter: (query: string) => void;
 	onLanguage: (pref: LangPref) => void;
 	onPanelWidth: (w: number) => void;
@@ -86,6 +92,8 @@ export class ControlPanel {
 	private filterInput: HTMLInputElement | null = null;
 	private filterClearBtn: HTMLElement | null = null;
 	private filterNoneEl: HTMLElement | null = null;
+	private filterAllBtn: HTMLElement | null = null;
+	private folderHost: HTMLElement | null = null;
 	private helpEl: HTMLElement | null = null;
 	private cb: ControlPanelCallbacks;
 
@@ -429,7 +437,12 @@ export class ControlPanel {
 		return Math.abs(a - b) < 1e-4;
 	}
 	/**
-	 * 「过滤」分区（#11）：查询框 + 未解析/孤儿/标签三个开关。
+	 * 「过滤」分区（#11）：可点的文件夹图例（主）＋ 折叠的文本查询（逃生口）＋ 未解析/孤儿/标签三个开关。
+	 *
+	 * 为什么图例是主体：节点一直按顶层文件夹上色，但面板从来没暴露过图例——用户看见一团团彩色，
+	 * 既不知道颜色什么意思、也没法对它做任何事。把图例做成可点的，一个东西同时回答
+	 * 「这个颜色什么意思」和「只给我看这块」，且零语法。文本框只留给图例表达不了的横切模式。
+	 *
 	 * 文案克制：分区标题已说明用途，故 placeholder 不重复「过滤笔记…」而是给一个可用的真实查询把语法教掉；
 	 * 面板头部已经在显示笔记数，所以不加「显示 N/M 篇」——只有零匹配才提示（整个视图空掉会像崩了）。
 	 */
@@ -440,10 +453,44 @@ export class ControlPanel {
 		const sum = det.createEl('summary');
 		sum.createSpan({ cls: 'gx-caret', text: '▸' });
 		sum.createSpan({ text: t('panel.sec.filter') });
+		sum.createSpan({ cls: 'gx-sec-head-spacer' });
+		// 「全选」只在有点灭的文件夹时出现——没什么可还原时它是零信息量的
+		this.filterAllBtn = sum.createSpan({ cls: 'gx-sec-restore', text: t('filter.all') });
+		this.filterAllBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			s.hiddenFolders = [];
+			cb.onHiddenFolders([]);
+			this.refreshFolders();
+		});
 		det.addEventListener('toggle', () => cb.onSectionToggle('filter', det.open));
 		const fBody = det.createDiv({ cls: 'gx-section-body' });
 
-		const wrap = fBody.createDiv({ cls: 'gx-filter' });
+		// —— 主：文件夹图例 ——
+		this.folderHost = fBody.createDiv({ cls: 'gx-folders' });
+		this.refreshFolders();
+
+		this.filterNoneEl = fBody.createDiv({ cls: 'gx-filter-none' });
+		this.filterNoneEl.toggleClass('is-hidden', true);
+
+		// —— 次：文本查询逃生口（默认折叠；图例表达不了的横切模式才用） ——
+		const esc = fBody.createDiv({ cls: 'gx-filter-esc' });
+		const escToggle = esc.createDiv({ cls: 'gx-filter-esc-t' });
+		escToggle.createSpan({ text: '＋' });
+		escToggle.createSpan({ text: t('filter.byName') });
+		const escBody = esc.createDiv({ cls: 'gx-filter-esc-b' });
+		// 存档里有查询就默认展开——否则用户看不见自己正被一个隐形条件过滤着
+		const startOpen = s.filterQuery.length > 0;
+		escBody.toggleClass('is-open', startOpen);
+		escToggle.toggleClass('is-open', startOpen);
+		escToggle.addEventListener('click', () => {
+			const open = !escBody.hasClass('is-open');
+			escBody.toggleClass('is-open', open);
+			escToggle.toggleClass('is-open', open);
+			if (open) this.filterInput?.focus();
+		});
+
+		const wrap = escBody.createDiv({ cls: 'gx-filter' });
 		const input = wrap.createEl('input', { cls: 'gx-filter-input', type: 'text' });
 		input.placeholder = t('filter.placeholder');
 		input.spellcheck = false;
@@ -456,9 +503,6 @@ export class ControlPanel {
 		clear.setAttr('title', t('filter.clear'));
 		clear.toggleClass('is-hidden', s.filterQuery.length === 0);
 		this.filterClearBtn = clear;
-
-		this.filterNoneEl = fBody.createDiv({ cls: 'gx-filter-none' });
-		this.filterNoneEl.toggleClass('is-hidden', true);
 
 		const push = (v: string) => {
 			s.filterQuery = v;
@@ -506,6 +550,47 @@ export class ControlPanel {
 		if (!this.filterNoneEl) return;
 		this.filterNoneEl.setText(empty ? t('filter.none') : '');
 		this.filterNoneEl.toggleClass('is-hidden', !empty);
+	}
+
+	/** 重画文件夹图例。数据与颜色都走回调实时取——面板在构造函数里就 build，字段注入会晚一步 */
+	refreshFolders(): void {
+		const host = this.folderHost;
+		if (!host) return;
+		host.empty();
+		const hidden = new Set(this.settings.hiddenFolders);
+		const list = this.cb.getFolders();
+		for (const { folder, count } of list) {
+			const chip = host.createDiv({ cls: 'gx-folder' });
+			chip.toggleClass('is-off', hidden.has(folder));
+			const dot = chip.createSpan({ cls: 'gx-folder-dot' });
+			dot.style.setProperty('--gx-folder-color', this.cb.folderColorHex(folder));
+			chip.createSpan({ cls: 'gx-folder-name', text: folder === '' ? t('filter.rootFolder') : folder });
+			chip.createSpan({ cls: 'gx-folder-count', text: String(count) });
+
+			// 「只看」＝把其余全点灭。hover 才出，因为它是加速器不是主操作
+			const solo = chip.createSpan({ cls: 'gx-folder-solo', text: t('filter.solo') });
+			solo.setAttr('title', t('filter.soloTip'));
+			solo.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const others = list.map((f) => f.folder).filter((f) => f !== folder);
+				// 已经是「只看它」了 → 再点还原，避免变成死胡同
+				const isSolo = others.every((f) => hidden.has(f)) && !hidden.has(folder);
+				this.applyHidden(isSolo ? [] : others);
+			});
+
+			chip.addEventListener('click', () => {
+				const next = new Set(hidden);
+				next.has(folder) ? next.delete(folder) : next.add(folder);
+				this.applyHidden([...next]);
+			});
+		}
+		this.filterAllBtn?.toggleClass('is-hidden', hidden.size === 0);
+	}
+
+	private applyHidden(next: string[]): void {
+		this.settings.hiddenFolders = next;
+		this.cb.onHiddenFolders(next);
+		this.refreshFolders();
 	}
 
 	private sectionClean(group: 'look' | 'physics' | 'bloom' | 'space'): boolean {

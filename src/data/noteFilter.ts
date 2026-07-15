@@ -1,8 +1,15 @@
 /**
- * 笔记过滤（issue #11）：按路径/文件名正负筛选，在 buildGraph 之前作用于 FileRecord[]。
+ * 笔记过滤（issue #11）：决定「什么进图」，在 buildGraph 之前作用于 FileRecord[]。
  * 被滤掉的笔记连同指向它的边会自然消失（buildGraph 靠 indexById 查不到就丢边），故本层零渲染耦合。
  *
- * 语法对齐 Obsidian 核心搜索的子集（核心 Graph View 的过滤框用的就是通用搜索语法）：
+ * 两层，主次分明：
+ * 1. **文件夹显隐（主）** —— 面板的可点图例把顶层文件夹列出来（颜色点＋笔记数），点击切显隐。
+ *    这是 90% 的用法：「只给我看 Projects」「别让 Archive 糊住图」。零语法、可发现，且顺带回答了
+ *    「节点这些颜色什么意思」——图例和过滤器本来就是一件事。
+ * 2. **文本查询（兜底逃生口）** —— 只留给图例表达不了的**横切**场景：散落在所有文件夹里的
+ *    `Index` / `Draft` 这类命名模式（正是 #11 提出者的原始场景）。默认折叠，不占主位。
+ *
+ * 语法（core Search 的子集）：
  *   Index          裸词 → 匹配完整路径（含文件夹名与文件名）
  *   file:Index     只匹配文件名（basename）
  *   path:Daily/    只匹配完整路径
@@ -15,6 +22,8 @@
  *   3225 篇的库上做不到即时反馈，违反性能纪律。本过滤器只吃 vault 已有的路径元数据，O(N) 纯字符串。
  * - regex、OR、括号分组、tag:（标签已有独立开关，加进来会和 showTags 的语义纠缠）
  */
+
+import { topFolder } from './buildGraph';
 
 export type FilterField = 'file' | 'path';
 
@@ -101,8 +110,42 @@ export function matchesFilter(rec: FilterableRecord, query: FilterQuery): boolea
 	return true;
 }
 
-/** 空查询直接原样返回（不复制数组），避免全库无谓遍历 */
-export function filterFiles<T extends FilterableRecord>(files: T[], query: FilterQuery): T[] {
-	if (query.length === 0) return files;
-	return files.filter((f) => matchesFilter(f, query));
+/** 图例（文件夹显隐）＋ 逃生口（文本查询）合成的完整过滤状态 */
+export interface NoteFilter {
+	/** 被点灭的顶层文件夹；空集=全显示。根目录笔记的键是 '' */
+	hiddenFolders: ReadonlySet<string>;
+	query: FilterQuery;
+}
+
+export const EMPTY_FILTER: NoteFilter = { hiddenFolders: new Set(), query: [] };
+
+export function isFilterActive(f: NoteFilter): boolean {
+	return f.hiddenFolders.size > 0 || f.query.length > 0;
+}
+
+export function passesFilter(rec: FilterableRecord, f: NoteFilter): boolean {
+	if (f.hiddenFolders.size > 0 && f.hiddenFolders.has(topFolder(rec.path))) return false;
+	return matchesFilter(rec, f.query);
+}
+
+/** 未过滤时原样返回（不复制数组），避免全库无谓遍历 */
+export function applyFilter<T extends FilterableRecord>(files: T[], f: NoteFilter): T[] {
+	if (!isFilterActive(f)) return files;
+	return files.filter((rec) => passesFilter(rec, f));
+}
+
+/**
+ * 图例数据：顶层文件夹 → 笔记数，**按笔记数降序**。
+ * 必须由**未过滤**的全量文件算，否则点灭一个文件夹会让其他 chip 的数字跟着跳。
+ * 这个顺序同时是配色的色相分配依据（见 palette.assignFolderHues）——大文件夹优先拿到不撞的色相。
+ */
+export function folderStats(files: readonly FilterableRecord[]): { folder: string; count: number }[] {
+	const by = new Map<string, number>();
+	for (const f of files) {
+		const top = topFolder(f.path);
+		by.set(top, (by.get(top) ?? 0) + 1);
+	}
+	return [...by.entries()]
+		.map(([folder, count]) => ({ folder, count }))
+		.sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder));
 }

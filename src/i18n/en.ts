@@ -21,7 +21,12 @@ export const EN = {
 	'panel.sec.filter': 'Filter',
 	'panel.sec.advanced': 'Advanced',
 	// —— filter (#11) ——
-	// placeholder 是个可用的真实查询：分区标题已经说了这是「过滤」，与其重复一句
+	'filter.all': 'Show all',
+	'filter.solo': 'only',
+	'filter.soloTip': 'Show only this folder (click again to restore)',
+	'filter.rootFolder': 'Vault root',
+	'filter.byName': 'Filter by name',
+	// placeholder 是个可用的真实查询：折叠标题已经说了这是「按名字过滤」，与其重复一句
 	// "Filter notes…"，不如用例子把语法教掉（裸词 + 取反 + 字段各示一次）。完整语法进 title 悬浮。
 	'filter.placeholder': 'Index  -file:Draft',
 	'filter.syntax': 'Match path or name. file:name · path:folder/ · -term excludes · "quoted phrase" · terms are ANDed',

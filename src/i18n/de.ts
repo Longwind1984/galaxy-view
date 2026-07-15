@@ -18,6 +18,11 @@ export const DE: Dict = {
 	'panel.sec.filter': 'Filter',
 	'panel.sec.advanced': 'Erweitert',
 	// —— filter (#11) ——
+	'filter.all': 'Alle anzeigen',
+	'filter.solo': 'nur',
+	'filter.soloTip': 'Nur diesen Ordner anzeigen (nochmal klicken zum Zurücksetzen)',
+	'filter.rootFolder': 'Tresor-Wurzel',
+	'filter.byName': 'Nach Namen filtern',
 	'filter.placeholder': 'Index  -file:Entwurf',
 	'filter.syntax':
 		'Pfad oder Name abgleichen. file:Name · path:Ordner/ · -Begriff schließt aus · "Ausdruck in Anführungszeichen" · Begriffe werden UND-verknüpft',

@@ -18,6 +18,11 @@ export const PT: Dict = {
 	'panel.sec.filter': 'Filtro',
 	'panel.sec.advanced': 'Avançado',
 	// —— filter (#11) ——
+	'filter.all': 'Mostrar tudo',
+	'filter.solo': 'só',
+	'filter.soloTip': 'Mostrar apenas esta pasta (clique novamente para restaurar)',
+	'filter.rootFolder': 'Raiz do cofre',
+	'filter.byName': 'Filtrar por nome',
 	'filter.placeholder': 'Index  -file:Rascunho',
 	'filter.syntax':
 		'Busca no caminho ou no nome. file:nome · path:pasta/ · -termo exclui · "frase entre aspas" · os termos são combinados com E',

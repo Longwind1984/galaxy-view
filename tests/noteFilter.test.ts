@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterFiles, matchesFilter, parseFilterQuery } from '../src/data/noteFilter';
+import { applyFilter, folderStats, matchesFilter, parseFilterQuery } from '../src/data/noteFilter';
 
 const rec = (path: string) => ({ path, basename: path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/, '') });
 
@@ -12,7 +12,8 @@ const VAULT = [
 	rec('star wars notes.md'),
 ];
 
-const run = (q: string) => filterFiles(VAULT, parseFilterQuery(q)).map((f) => f.path);
+const run = (q: string) => applyFilter(VAULT, { hiddenFolders: new Set<string>(), query: parseFilterQuery(q) }).map((f) => f.path);
+const runHidden = (folders: string[]) => applyFilter(VAULT, { hiddenFolders: new Set(folders), query: [] }).map((f) => f.path);
 
 describe('parseFilterQuery', () => {
 	it('treats a bare word as a path match', () => {
@@ -52,10 +53,9 @@ describe('parseFilterQuery', () => {
 	});
 });
 
-describe('filterFiles', () => {
-	it('returns the array untouched for an empty query', () => {
-		const q = parseFilterQuery('');
-		expect(filterFiles(VAULT, q)).toBe(VAULT); // 同一引用 = 没有无谓复制
+describe('applyFilter', () => {
+	it('returns the array untouched when nothing is filtered', () => {
+		expect(applyFilter(VAULT, { hiddenFolders: new Set<string>(), query: [] })).toBe(VAULT); // 同一引用 = 没有无谓复制
 	});
 
 	it('includes only matches for a positive filename term (issue #11 example)', () => {
@@ -95,5 +95,47 @@ describe('filterFiles', () => {
 describe('matchesFilter', () => {
 	it('passes any record when the query is empty', () => {
 		expect(matchesFilter(rec('anything.md'), [])).toBe(true);
+	});
+});
+
+describe('folderStats（图例数据）', () => {
+	it('按笔记数降序，根目录笔记归入 ""（同数时按名字，空串在前）', () => {
+		expect(folderStats(VAULT)).toEqual([
+			{ folder: 'Daily', count: 2 },
+			{ folder: 'Projects', count: 2 },
+			{ folder: '', count: 1 },
+			{ folder: 'Archive', count: 1 },
+		]);
+	});
+
+	it('数量相同时按名字定序——图例顺序必须稳定，否则每次重建 chip 会跳', () => {
+		const a = folderStats(VAULT).map((f) => f.folder);
+		const b = folderStats([...VAULT].reverse()).map((f) => f.folder);
+		expect(a).toEqual(b);
+	});
+});
+
+describe('文件夹显隐（图例点击）', () => {
+	it('点灭一个文件夹 → 它的笔记全部消失', () => {
+		expect(runHidden(['Daily'])).toEqual([
+			'Projects/Galaxy View.md',
+			'Projects/Index.md',
+			'Archive/Old Index Notes.md',
+			'star wars notes.md',
+		]);
+	});
+
+	it('「只看 Projects」= 点灭其余全部', () => {
+		expect(runHidden(['Daily', 'Archive', ''])).toEqual(['Projects/Galaxy View.md', 'Projects/Index.md']);
+	});
+
+	it('根目录笔记可单独点灭（键是空串，不能被当成 falsy 忽略）', () => {
+		expect(runHidden([''])).not.toContain('star wars notes.md');
+		expect(runHidden([''])).toHaveLength(5);
+	});
+
+	it('图例与文本框是 AND：Projects 里排除 Index', () => {
+		const out = applyFilter(VAULT, { hiddenFolders: new Set(['Daily', 'Archive', '']), query: parseFilterQuery('-file:Index') });
+		expect(out.map((f) => f.path)).toEqual(['Projects/Galaxy View.md']);
 	});
 });

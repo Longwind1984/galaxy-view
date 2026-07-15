@@ -22,6 +22,11 @@ export const ZH: Dict = {
 	'panel.sec.filter': '过滤',
 	'panel.sec.advanced': '高级',
 	// —— filter (#11) ——
+	'filter.all': '全部显示',
+	'filter.solo': '只看',
+	'filter.soloTip': '只看这个文件夹（再点还原）',
+	'filter.rootFolder': '库根目录',
+	'filter.byName': '按名字过滤',
 	'filter.placeholder': 'Index  -file:草稿',
 	'filter.syntax': '匹配路径或文件名。file:文件名 · path:文件夹/ · -词 排除 · "带空格的短语" · 多词之间是 AND',
 	'filter.clear': '清空过滤',

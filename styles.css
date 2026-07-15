@@ -756,8 +756,52 @@
 .gx-textlike { background: transparent; }
 .gx-adv-stats { font-size: 10.5px; color: rgba(150, 160, 185, 0.6); margin-top: 8px; font-variant-numeric: tabular-nums; }
 
-/* note filter (#11) */
-.gx-filter { position: relative; margin-top: 4px; }
+/* note filter (#11) — 可点的文件夹图例（主） */
+.gx-folders { margin-top: 2px; }
+.gx-folder {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 3px 6px;
+	border-radius: 6px;
+	cursor: pointer;
+	font-size: 11.5px;
+	user-select: none;
+}
+.gx-folder:hover { background: rgba(127, 155, 255, 0.16); }
+.gx-folder-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	flex: none;
+	background: var(--gx-folder-color, #9aa4b2);
+	box-shadow: 0 0 6px var(--gx-folder-color, #9aa4b2);
+}
+.gx-folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-folder-count { font-size: 10px; color: rgba(150, 160, 185, 0.6); font-variant-numeric: tabular-nums; }
+.gx-folder-solo { font-size: 9.5px; color: #7f9bff; opacity: 0; padding-left: 2px; }
+.gx-folder:hover .gx-folder-solo { opacity: 1; }
+.gx-folder.is-off { opacity: 0.38; }
+.gx-folder.is-off .gx-folder-dot { background: transparent; box-shadow: none; border: 1px solid rgba(150, 160, 185, 0.7); }
+
+/* 文本查询逃生口（次）：默认折叠，只给图例表达不了的横切模式 */
+.gx-filter-esc { margin-top: 9px; border-top: 1px dashed rgba(140, 150, 180, 0.16); padding-top: 8px; }
+.gx-filter-esc-t {
+	font-size: 10.5px;
+	color: rgba(150, 160, 185, 0.65);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	user-select: none;
+}
+.gx-filter-esc-t:hover { color: inherit; }
+.gx-filter-esc-t.is-open span:first-child { transform: rotate(45deg); }
+.gx-filter-esc-t span:first-child { transition: transform 0.15s; display: inline-block; }
+.gx-filter-esc-b { display: none; }
+.gx-filter-esc-b.is-open { display: block; }
+
+.gx-filter { position: relative; margin-top: 7px; }
 .gx-filter-input {
 	width: 100%;
 	font-family: var(--font-monospace);

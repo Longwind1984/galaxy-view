@@ -18,6 +18,11 @@ export const ES: Dict = {
 	'panel.sec.filter': 'Filtro',
 	'panel.sec.advanced': 'Avanzado',
 	// —— filter (#11) ——
+	'filter.all': 'Mostrar todo',
+	'filter.solo': 'solo',
+	'filter.soloTip': 'Mostrar solo esta carpeta (haz clic de nuevo para restaurar)',
+	'filter.rootFolder': 'Raíz del vault',
+	'filter.byName': 'Filtrar por nombre',
 	'filter.placeholder': 'Index  -file:Borrador',
 	'filter.syntax':
 		'Busca en la ruta o el nombre. file:nombre · path:carpeta/ · -término excluye · "frase entre comillas" · los términos se combinan con Y',

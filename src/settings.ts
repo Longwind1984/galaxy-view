@@ -48,6 +48,8 @@ export interface GalaxySettings {
 	showOrphans: boolean;
 	/** 标签作为节点：共享 tag 的笔记通过标签星成簇 */
 	showTags: boolean;
+	/** 笔记过滤查询（#11）；空串=不过滤。语法见 data/noteFilter.ts */
+	filterQuery: string;
 	/** 幽灵边：Constellation 伴侣插件的待确认链接建议（虚线；接受后自动变实线） */
 	showGhostEdges: boolean;
 	/** 深空星空背景开关（用户选项） */
@@ -88,6 +90,7 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	showUnresolved: false,
 	showOrphans: true,
 	showTags: false,
+	filterQuery: '',
 	// 默认关：ghost 幽灵边依赖 Constellation 伴侣插件（尚未正式发布），随 0.4.0 发布但先不打扰普通用户
 	showGhostEdges: false,
 	showStarfield: true,
@@ -157,6 +160,10 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 			typeof (sv as Record<string, unknown>)['showTags'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showTags'] as boolean)
 				: d.showTags,
+		filterQuery:
+			typeof (sv as Record<string, unknown>)['filterQuery'] === 'string'
+				? ((sv as Record<string, unknown>)['filterQuery'] as string)
+				: d.filterQuery,
 		showGhostEdges:
 			typeof (sv as Record<string, unknown>)['showGhostEdges'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showGhostEdges'] as boolean)

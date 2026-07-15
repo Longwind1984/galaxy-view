@@ -18,7 +18,15 @@ export const EN = {
 	'panel.sec.space': 'Deep-space backdrop',
 	'panel.sec.cruise': 'Cruise',
 	'panel.sec.tour': 'Tour',
+	'panel.sec.filter': 'Filter',
 	'panel.sec.advanced': 'Advanced',
+	// —— filter (#11) ——
+	// placeholder 是个可用的真实查询：分区标题已经说了这是「过滤」，与其重复一句
+	// "Filter notes…"，不如用例子把语法教掉（裸词 + 取反 + 字段各示一次）。完整语法进 title 悬浮。
+	'filter.placeholder': 'Index  -file:Draft',
+	'filter.syntax': 'Match path or name. file:name · path:folder/ · -term excludes · "quoted phrase" · terms are ANDed',
+	'filter.clear': 'Clear filter',
+	'filter.none': 'No notes match this filter',
 	// —— tour ——
 	'tour.play': 'Play',
 	'tour.stop': 'Stop',

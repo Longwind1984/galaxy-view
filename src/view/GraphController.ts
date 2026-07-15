@@ -67,6 +67,8 @@ export class GraphController {
 	private saveSoon: () => void;
 	/** 结构性操作（存/删/移/改名预设）立即写盘，绕开 800ms 防抖——避免存完立刻退出丢失 */
 	private saveNow: () => void;
+	/** 过滤查询防抖（#11）：每次生效都要重建图 + 重热布局，逐键触发会把大库打死 */
+	private filterSoon: (q: string) => void;
 	private tier: QualityTier = TIERS.high;
 	private autoLow = false; // auto 档当前是否降到 low（可双向）
 	private lowFpsChecks = 0;
@@ -84,6 +86,8 @@ export class GraphController {
 		this.store = new GraphStore(app);
 		this.saveNow = saveSettings;
 		this.saveSoon = debounce(saveSettings, 800, true);
+		// 300ms：短到打完就出结果，长到连打不会每键重建（3.2k 笔记的库上一次重建+重热是几十 ms 起）
+		this.filterSoon = debounce((q: string) => this.store.setFilterQuery(q), 300, false);
 	}
 
 	get counts(): { nodes: number; links: number } {
@@ -92,7 +96,9 @@ export class GraphController {
 
 	async start(): Promise<void> {
 		await this.store.ensureCacheReady();
-		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, this.settings.showTags, () => this.onDataChanged());
+		this.store.init(this.settings.showUnresolved, this.settings.showOrphans, this.settings.showTags, this.settings.filterQuery, () =>
+			this.onDataChanged(),
+		);
 		this.store.rebuild(false);
 
 		// 暖启动：用上次沉降坐标覆盖种子 → 重开即成形
@@ -299,6 +305,8 @@ export class GraphController {
 		this.renderer.setData(this.store.data, this.store.positions);
 		this.renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.overlay?.setData(this.store.data, this.graphRadius);
+		// 过滤到空图时给一句——整个 3D 视图空掉会像崩了，这个不是「一试就懂」的
+		this.panel?.setFilterEmpty(this.store.isFiltered() && this.store.data.nodes.length === 0);
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
 		this.initLayout(0.3);
 		this.wasSettled = false;
@@ -900,6 +908,10 @@ export class GraphController {
 			},
 			onShowTags: (on) => {
 				this.store.setIncludeTags(on);
+				this.saveSoon();
+			},
+			onFilter: (q) => {
+				this.filterSoon(q); // 逐键会重建图 + 重跑布局，必须防抖
 				this.saveSoon();
 			},
 			onStarfield: (on) => {

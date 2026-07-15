@@ -756,6 +756,43 @@
 .gx-textlike { background: transparent; }
 .gx-adv-stats { font-size: 10.5px; color: rgba(150, 160, 185, 0.6); margin-top: 8px; font-variant-numeric: tabular-nums; }
 
+/* note filter (#11) */
+.gx-filter { position: relative; margin-top: 4px; }
+.gx-filter-input {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: 11.5px;
+	color: inherit;
+	background: rgba(0, 0, 0, 0.28);
+	border: 1px solid rgba(140, 160, 210, 0.16);
+	border-radius: 8px;
+	padding: 6px 24px 6px 9px;
+	outline: none;
+}
+.gx-filter-input::placeholder { color: rgba(150, 160, 185, 0.5); }
+.gx-filter-input:focus { border-color: rgba(127, 155, 255, 0.55); background: rgba(0, 0, 0, 0.4); }
+.gx-filter-clear {
+	position: absolute;
+	right: 4px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 17px;
+	height: 17px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	box-shadow: none;
+	color: rgba(150, 160, 185, 0.7);
+	cursor: pointer;
+	font-size: 10px;
+	line-height: 1;
+	padding: 0;
+}
+.gx-filter-clear:hover { background: rgba(127, 155, 255, 0.16); color: inherit; }
+.gx-filter-clear.is-hidden { display: none; }
+.gx-filter-none { font-size: 10.5px; color: #ffb95c; margin-top: 6px; line-height: 1.35; }
+.gx-filter-none.is-hidden { display: none; }
+
 /* persistent help popover */
 .gx-help-pop { position: absolute; z-index: 20; right: 0; top: 32px; width: 232px; background: rgba(20, 24, 38, 0.98); border: 1px solid rgba(127, 155, 255, 0.5); border-radius: 10px; padding: 11px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6); }
 .gx-help-pop h4 { margin: 0 0 8px; font-size: 12px; }

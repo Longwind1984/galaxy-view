@@ -15,7 +15,14 @@ export const DE: Dict = {
 	'panel.sec.space': 'Weltraum-Hintergrund',
 	'panel.sec.cruise': 'Cruise',
 	'panel.sec.tour': 'Tour',
+	'panel.sec.filter': 'Filter',
 	'panel.sec.advanced': 'Erweitert',
+	// —— filter (#11) ——
+	'filter.placeholder': 'Index  -file:Entwurf',
+	'filter.syntax':
+		'Pfad oder Name abgleichen. file:Name · path:Ordner/ · -Begriff schließt aus · "Ausdruck in Anführungszeichen" · Begriffe werden UND-verknüpft',
+	'filter.clear': 'Filter löschen',
+	'filter.none': 'Keine Notizen entsprechen diesem Filter',
 	'tour.play': 'Abspielen',
 	'tour.stop': 'Stopp',
 	'slider.tour.speed': 'Tempo',

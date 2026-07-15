@@ -19,7 +19,13 @@ export const ZH: Dict = {
 	'panel.sec.space': '深空背景',
 	'panel.sec.cruise': '巡航',
 	'panel.sec.tour': '探索',
+	'panel.sec.filter': '过滤',
 	'panel.sec.advanced': '高级',
+	// —— filter (#11) ——
+	'filter.placeholder': 'Index  -file:草稿',
+	'filter.syntax': '匹配路径或文件名。file:文件名 · path:文件夹/ · -词 排除 · "带空格的短语" · 多词之间是 AND',
+	'filter.clear': '清空过滤',
+	'filter.none': '没有笔记匹配这个过滤',
 	// —— tour ——
 	'tour.play': '开始',
 	'tour.stop': '停止',

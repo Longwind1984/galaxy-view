@@ -15,7 +15,14 @@ export const IT: Dict = {
 	'panel.sec.space': 'Sfondo spazio profondo',
 	'panel.sec.cruise': 'Crociera',
 	'panel.sec.tour': 'Tour',
+	'panel.sec.filter': 'Filtro',
 	'panel.sec.advanced': 'Avanzate',
+	// —— filter (#11) ——
+	'filter.placeholder': 'Index  -file:Bozza',
+	'filter.syntax':
+		'Cerca nel percorso o nel nome. file:nome · path:cartella/ · -termine esclude · "frase tra virgolette" · i termini sono in AND',
+	'filter.clear': 'Cancella filtro',
+	'filter.none': 'Nessuna nota corrisponde a questo filtro',
 	'tour.play': 'Avvia',
 	'tour.stop': 'Ferma',
 	'slider.tour.speed': 'Velocità',

@@ -2,7 +2,8 @@
 
 A cinematic 3D graph view for [Obsidian](https://obsidian.md) — fly through your vault like NASA's [Eyes on Asteroids](https://eyes.nasa.gov/apps/asteroids/#/home).
 
-![Uploading image.png…]()
+<img width="2940" height="1846" alt="image" src="https://github.com/user-attachments/assets/f774e286-e5d5-41b8-819f-fbf97153ea8a" />
+
 
 
 Your notes become a galaxy: luminous nodes colored by your graph groups, thin desaturated link filaments, a slowly rotating starfield, and a camera that glides instead of jumps. Beauty and playfulness are part of productivity.

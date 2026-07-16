@@ -584,7 +584,8 @@ export class ControlPanel {
 				this.applyHidden([...next]);
 			});
 		}
-		this.filterAllBtn?.toggleClass('is-hidden', hidden.size === 0);
+		// 用 gx-hide 而非 is-hidden：.gx-sec-restore 的显隐规则是 gx-hide（既有约定，见 styles.css）
+		this.filterAllBtn?.toggleClass('gx-hide', hidden.size === 0);
 	}
 
 	private applyHidden(next: string[]): void {

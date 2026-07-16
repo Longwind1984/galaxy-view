@@ -4,6 +4,51 @@
 
 ---
 
+## 2026-07-16 · 发布 0.5.0：文件夹图例过滤 + 图体居中 + 配色撞色修复（首次真机眼验）
+
+### 做了什么
+**0.5.0 已上线**：https://github.com/Longwind1984/galaxy-view/releases/tag/0.5.0 。含三件：① @tzhengus 的图体居中修复（#9）；② 可点的文件夹图例过滤（#11）；③ 配色撞色修复（既有缺陷）。**Tag Lens（#7）未进**，等 @tzhengus 回应 PR #8 的重做请求。
+
+**这轮最大的不同：真的眼验了。** 第二次请求 computer-use 授权通过（第一次被拒），在 dev-vault 里逐项验证——这直接查出并修掉了一个静态检查发现不了的 bug。
+
+### 眼验结果（dev-vault，3230 笔记）
+- ✅ 图例渲染：15 个文件夹，颜色与图中节点一致，笔记数与 `find` 数出来的完全对得上
+- ✅ **撞色修复**（本次最关键的验收点）：99Archive 粉 / 90故纸堆 绿 / Readwise 青——修复前这三个是同一个蓝
+- ✅ 点 chip：3230 → 2623，正好减 607（04AI 的数量），图上那团星消失
+- ✅ 「只看 01学习」→ 197 笔记，其余 chip 全灭
+- ✅ 逃生口：`file:AI` → 253，与 `find -iname "*AI*"` 的 253 一致；`-file:Index` → 3230 不变（库里 0 个 index 文件，正确）
+- ✅ 持久化：`filterQuery` 已写进 data.json
+- 🐛 **查出 bug 并修**：「全部显示」永不收起。我用了 `is-hidden` 类，但 `.gx-sec-restore` 的显隐约定是 `gx-hide`，没有对应 CSS → 按钮常亮。一个点了什么也不会发生的控件＝零信息量 UI。提交 535a20c。
+
+### 关键决策与教训
+- **拆两个 PR 而非一个**（Rick 说「PR 并 merge」，我拆了并说明）：#9 与 #11 是两件事，焊死就没法单发 0.4.1。但**合完两者都在 main 上，0.4.1 单发的选项实际已消失**，于是直接发 0.5.0（含 #9 修复）。
+- **发布用 `npm version 0.5.0 --tag-version-prefix=""`**：仓库既有 tag 不带 `v`，而 npm 默认加 `v`。Obsidian 商店要求 **tag 名与 manifest.version 完全一致**，打成 `v0.5.0` 会发歪。
+- **⚠️ 发布顺序踩坑**：`git push origin main` 与 `git push origin 0.5.0` 串在一条命令里，**main 推失败（远端又被 Rick 改了 README）但 tag 推成功** → CI 立刻据 tag 出了 release，而 main 的 manifest 还是 0.4.0 → **商店检测不到更新**。用 `git merge origin/main`（非 force push，保住 Rick 的截图提交）后补推 main 解决。**教训：tag 必须在 main 推成功之后再推。**
+- **发布验证到位**：release 的 `main.js` 与本地眼验过的 `dist/main.js` **逐字节一致**（797,562 bytes，`diff -q` 通过）——用户下载的就是验过的那份。
+
+### 命令超时的诊断（Rick 问「为什么失败了」）
+两条命令连续 3 分钟超时、代码没提交。**取证结论：不是代码问题，是我把命令写坏了。**
+- 证据：无 git hook、未开 GPG 签名，`git commit` 单独跑 **0 秒**；`eslint` 单独跑 **12 秒**正常退出；`ps` 里的残留 esbuild 属于 `ZCodeProject/history-kb`（另一个项目），Galaxy_View 无残留进程。
+- 真因（结构性）：把 `npm test && npm run lint && git commit` **串成一条命令**，而 Bash 工具有 3 分钟上限——前两步只要慢，整条链被砍，`git commit` 根本没轮到执行。**提交不该挂在两条多分钟的 npm 命令下游。**
+- 加剧因素：我用 `npm run dev &` 起了 **watch 模式**（设计上永不退出）又用 `pkill -f "esbuild.config.mjs"` 去杀，而该 pattern 在我自己的命令行里也存在。实测 shell 能活下来，故非直接死因，但同项目里一边 watch 一边跑 npm 是自找竞争。
+- **无法确指是哪一步卡住**（当时未留日志），但上述足以解释现象，改法明确：拆开跑。
+
+### 当前状态
+main = `b21e633`，manifest 0.5.0，tag `0.5.0` 在 main 历史内，release 已 Latest。CI 成功。商店更新走 GitHub Release 自动传播。
+
+### 未尽事项与已知问题
+- **issue #11 欠一条收尾回复**：线程上最后的口径是我问「该对齐哪套语法」，SotS1689 答「对齐核心 Graph View 就够」并说「等不及上线」——**而我们发的是文件夹图例，语法降级成了折叠逃生口**。他的诉求仍被满足，但不说明他会先看到一堆 chips 找不到输入框。草稿在 scratchpad `reply-i11-shipped.md`，**待 Rick 过目**（内容含「我先前问错了问题」的承认，是以 Rick 身份说的）。
+- **图例是面板 IA 的大改**（三个开关从「高级」搬到「过滤」），老用户可能不适应——下轮巡检重点看有无相关 issue。
+- 德/意/西/葡四语的过滤文案仍是我译的，无母语校验。
+- 图例只到**顶层**文件夹；14 个文件夹已占不少面板高度，更多文件夹的库会更挤（未做滚动/折叠）。
+- `dist/main.js` 仍残留 `runScenario` 死方法（0.1.1 起就有，非用户可见）。
+- 性能基准 S1/S4 自 0.4.0 起未复跑。
+
+### 文件级变更清单
+- `src/overlay/ControlPanel.ts`（`gx-hide` 修复）
+- `manifest.json` / `package.json` 0.4.0→0.5.0、`versions.json` +`"0.5.0": "1.8.7"`（`npm version` 自动）
+- `docs/社区巡检.md`（本轮结果 + 下轮关注点）
+
 ## 2026-07-16（四）· 合并后的 main 首次回归验证（定时自主轮，仅验证未改码）
 
 ### 做了什么

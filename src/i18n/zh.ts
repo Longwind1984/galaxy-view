@@ -114,6 +114,8 @@ export const ZH: Dict = {
 	'sizeBy.uniform': '大小：一致',
 	'look.starfield.on': '星空背景：开',
 	'look.starfield.off': '星空背景：关',
+	'look.adaptiveLabels.on': '缩放标签：开',
+	'look.adaptiveLabels.off': '缩放标签：关',
 	'preset.deepSpace': '视觉：深空',
 	'preset.adaptive': '视觉：随主题',
 	// —— advanced toggles ——
@@ -194,6 +196,8 @@ export const ZH: Dict = {
 	'set.ghostEdges.desc': '把 Constellation 插件的待确认链接建议显示为虚线边；在那边接受后自动变为实线。',
 	'set.starfield': '星空背景',
 	'set.starfield.desc': '深空的背景恒星球壳',
+	'set.adaptiveLabels': '随缩放显示节点名称',
+	'set.adaptiveLabels.desc': '名称大小随链接数变化，先显示主要节点，放大时逐步显示较小节点',
 	'set.reset': '重置全部 Galaxy View 设置',
 	'set.reset.desc': '把每一项设置恢复默认',
 	'set.reset.cta': '重置',

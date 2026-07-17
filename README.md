@@ -23,6 +23,7 @@ Your notes become a galaxy: luminous nodes colored by your graph groups, thin de
 - **Filter by clicking, not by typing** — the Filter section lists your top-level folders with their node color and note count: click one to hide it, hover for *only*. It's the legend the graph never had and the filter at the same time. A collapsed text field handles what a legend can't express — cross-cutting name patterns like `-file:Index`.
 - **Search & navigate** — fuzzy search flies you to any note; `WASD`/`Q`/`E` free flight; right-drag or ⌘-drag to pan; `F`/`R`/`ESC` shortcuts.
 - **Mobile aware** — automatic quality tier on phones (no postprocessing, top-1500 nodes by degree, bottom-sheet cards) keeps it smooth on iOS and Android.
+- **Zoom-aware labels** — optionally keep the most-connected notes named at the overview level, then reveal progressively smaller nodes as you zoom in; label size reflects link count and screen-space collision avoidance keeps names readable.
 - **Two visual directions** — always-dark deep space, or theme-adaptive with a designed ink-on-paper light mode.
 
 ## Install

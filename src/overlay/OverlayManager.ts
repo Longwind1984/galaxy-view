@@ -3,6 +3,7 @@ import { TFile, getAllTags } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
 import { getLang, t } from '../i18n';
+import { adaptiveLabelBudget, adaptiveLabelFontSize, labelBox, labelBoxesOverlap, type LabelBox } from './adaptiveLabels';
 
 
 
@@ -16,7 +17,7 @@ export interface OverlayCallbacks {
 
 /**
  * DOM 浮层（NASA 模式：标签和卡片不进画布）。
- * 硬预算：枢纽 14 + hover 1 + 邻居 ≤20 + 卡片 1 —— 每帧 ≤36 次投影，可忽略。
+ * 普通模式保持固定枢纽预算；自适应模式低频重选可见标签，并按质量档限制在枢纽预算的 10 倍以内。
  */
 export class OverlayManager {
 	private root: HTMLElement;
@@ -34,6 +35,9 @@ export class OverlayManager {
 	private hubBudget = 14;
 	private neighborBudget = 20;
 	private mobileCard = false;
+	private adaptiveLabels = false;
+	private rankedLabels: { index: number; node: GraphNode }[] = [];
+	private lastAdaptiveRefresh = -Infinity;
 
 	constructor(
 		parent: HTMLElement,
@@ -53,24 +57,74 @@ export class OverlayManager {
 		this.hubBudget = hub;
 		this.neighborBudget = neighbor;
 		this.mobileCard = mobileCard;
-		this.setData(this.data, this.graphRadius);
+		this.rebuildHubLabels();
 	}
 
 	setData(data: GraphData, graphRadius: number): void {
 		this.data = data;
 		this.graphRadius = graphRadius;
-		for (const h of this.hubEls) h.el.remove();
-		this.hubEls = [...data.nodes.entries()]
+		this.rankedLabels = [...data.nodes.entries()]
 			.filter(([, n]) => !n.unresolved)
-			.sort((a, b) => b[1].degree - a[1].degree)
-			.slice(0, this.hubBudget)
-			.map(([index, n]) => ({
-				index,
-				el: this.root.createDiv({ cls: 'gx-label gx-label-hub', text: n.name }),
-			}));
+			.sort((a, b) => b[1].degree - a[1].degree || a[1].name.localeCompare(b[1].name))
+			.map(([index, node]) => ({ index, node }));
+		this.rebuildHubLabels();
 		// 数据重建后旧索引失效，清掉依赖索引的状态
 		this.setHover(-1);
 		this.setSelection(-1, new Set());
+	}
+
+	setAdaptiveLabels(enabled: boolean): void {
+		if (this.adaptiveLabels === enabled) return;
+		this.adaptiveLabels = enabled;
+		this.rebuildHubLabels();
+	}
+
+	private rebuildHubLabels(): void {
+		for (const h of this.hubEls) h.el.remove();
+		this.hubEls = [];
+		this.lastAdaptiveRefresh = -Infinity;
+		if (this.adaptiveLabels) return;
+		this.hubEls = this.rankedLabels.slice(0, this.hubBudget).map(({ index, node }) => ({
+			index,
+			el: this.root.createDiv({ cls: 'gx-label gx-label-hub', text: node.name }),
+		}));
+	}
+
+	/** Re-select visible labels at a low cadence; their positions are still updated every frame. */
+	private refreshAdaptiveLabels(w: number, h: number, cameraDistance: number, now: number): void {
+		if (!this.adaptiveLabels || now - this.lastAdaptiveRefresh < 120) return;
+		this.lastAdaptiveRefresh = now;
+		const overviewDistance = Math.max(this.graphRadius * 2.6, 1);
+		const zoom = overviewDistance / Math.max(cameraDistance, 1);
+		const budget = adaptiveLabelBudget(this.rankedLabels.length, this.hubBudget, zoom);
+		const excluded = new Set(this.neighborEls.map((e) => e.index));
+		if (this.hoverIndex >= 0) excluded.add(this.hoverIndex);
+		if (this.cardIndex >= 0) excluded.add(this.cardIndex);
+
+		const occupied: LabelBox[] = [];
+		const selected: { index: number; node: GraphNode; major: boolean; fontSize: number }[] = [];
+		const maxDegree = this.rankedLabels[0]?.node.degree ?? 1;
+		for (let rank = 0; rank < this.rankedLabels.length && selected.length < budget; rank++) {
+			const candidate = this.rankedLabels[rank];
+			if (!candidate || excluded.has(candidate.index)) continue;
+			const p = this.renderer.projectNode(candidate.index, w, h);
+			if (p.behind || p.x < 4 || p.x > w - 4 || p.y < 30 || p.y > h - 4) continue;
+			const fontSize = adaptiveLabelFontSize(candidate.node.degree, maxDegree);
+			const box = labelBox(candidate.node.name, p.x, p.y, fontSize);
+			if (occupied.some((other) => labelBoxesOverlap(box, other))) continue;
+			occupied.push(box);
+			selected.push({ ...candidate, major: rank < this.hubBudget, fontSize });
+		}
+
+		const previous = new Map(this.hubEls.map((item) => [item.index, item.el]));
+		this.hubEls = selected.map(({ index, node, major, fontSize }) => {
+			const el = previous.get(index) ?? this.root.createDiv({ cls: 'gx-label gx-label-hub', text: node.name });
+			previous.delete(index);
+			el.toggleClass('gx-label-major', major);
+			el.style.fontSize = `${fontSize.toFixed(1)}px`;
+			return { index, el };
+		});
+		for (const el of previous.values()) el.remove();
 	}
 
 	setHover(index: number): void {
@@ -240,7 +294,8 @@ export class OverlayManager {
 	}
 
 	/** 每帧：投影所有被追踪节点，translate3d 定位（GPU 合成，无重排） */
-	update(w: number, h: number): void {
+	update(w: number, h: number, cameraDistance = this.graphRadius * 2.6, now = performance.now()): void {
+		this.refreshAdaptiveLabels(w, h, cameraDistance, now);
 		const far = this.graphRadius * 2.6;
 		const near = this.graphRadius * 1.2;
 		for (const { index, el } of this.hubEls) {
@@ -250,7 +305,11 @@ export class OverlayManager {
 				continue;
 			}
 			const dist = this.renderer.cameraDistanceTo(index);
-			const a = Math.min(Math.max((far - dist) / (far - near), 0), 1);
+			const a = this.adaptiveLabels
+				? el.classList.contains('gx-label-major')
+					? 0.98
+					: 0.82
+				: Math.min(Math.max((far - dist) / (far - near), 0), 1);
 			el.style.opacity = a.toFixed(2);
 			el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${(p.y - 14).toFixed(1)}px, 0)`;
 		}

@@ -198,7 +198,10 @@ export class GraphController {
 				this.stepShot(now);
 				this.renderer?.render(deltaS);
 				const { clientWidth: w, clientHeight: h } = this.contentEl;
-				this.overlay?.update(w, h);
+				const cameraDistance = this.director
+					? renderer.camera.position.distanceTo(this.director.target)
+					: this.graphRadius * 2.6;
+				this.overlay?.update(w, h, cameraDistance, now);
 			}
 			this.updateHud(now);
 			this.watchdog(now);
@@ -439,6 +442,7 @@ export class GraphController {
 		this.renderer?.setLinkCurve(s.look.linkCurve);
 		this.renderer?.setSizeMode(s.look.sizeBy);
 		this.renderer?.setStarfieldEnabled(s.showStarfield);
+		this.overlay?.setAdaptiveLabels(s.adaptiveLabels);
 		this.syncNebulaTint();
 		this.renderer?.setSpace(s.space);
 		if (this.renderer) this.renderer.twinkleFreq = s.look.twinkle;
@@ -911,6 +915,10 @@ export class GraphController {
 				this.renderer?.setLinkOpacity(this.settings.look.linkOpacity);
 				this.renderer?.setLinkCurve(this.settings.look.linkCurve);
 				if (this.renderer) this.renderer.twinkleFreq = this.settings.look.twinkle;
+				this.saveSoon();
+			},
+			onAdaptiveLabels: (on) => {
+				this.overlay?.setAdaptiveLabels(on);
 				this.saveSoon();
 			},
 			onSpace: () => {

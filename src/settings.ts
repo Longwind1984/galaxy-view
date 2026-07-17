@@ -56,6 +56,8 @@ export interface GalaxySettings {
 	showGhostEdges: boolean;
 	/** 深空星空背景开关（用户选项） */
 	showStarfield: boolean;
+	/** 随镜头缩放逐步显示节点名称，优先显示链接数最多的节点 */
+	adaptiveLabels: boolean;
 	colorTheme: string;
 	qualityOverride: 'auto' | 'high' | 'low' | 'mobile'; // mobile 档在桌面=移动模拟 // 最近应用的配色主题 id；'imported'=二维导入，'custom'=洗牌后
 	preset: VisualPreset;
@@ -97,6 +99,7 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	// 默认关：ghost 幽灵边依赖 Constellation 伴侣插件（尚未正式发布），随 0.4.0 发布但先不打扰普通用户
 	showGhostEdges: false,
 	showStarfield: true,
+	adaptiveLabels: false,
 	colorTheme: 'imported',
 	qualityOverride: 'auto',
 	preset: 'deep-space',
@@ -175,6 +178,10 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 				? ((sv as Record<string, unknown>)['showGhostEdges'] as boolean)
 				: d.showGhostEdges,
 		showStarfield: typeof sv.showStarfield === 'boolean' ? sv.showStarfield : d.showStarfield,
+		adaptiveLabels:
+			typeof (sv as Record<string, unknown>)['adaptiveLabels'] === 'boolean'
+				? ((sv as Record<string, unknown>)['adaptiveLabels'] as boolean)
+				: d.adaptiveLabels,
 		colorTheme:
 			typeof (sv as Record<string, unknown>)['colorTheme'] === 'string'
 				? ((sv as Record<string, unknown>)['colorTheme'] as string)

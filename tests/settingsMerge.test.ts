@@ -83,3 +83,11 @@ describe('mergeSettings v0.5 兼容（笔记过滤 #11）', () => {
 		expect(mergeSettings({ filterQuery: null }).filterQuery).toBe('');
 	});
 });
+
+describe('mergeSettings adaptive labels', () => {
+	it('keeps the feature opt-in for existing vaults', () => {
+		expect(mergeSettings({}).adaptiveLabels).toBe(false);
+		expect(mergeSettings({ adaptiveLabels: true }).adaptiveLabels).toBe(true);
+		expect(mergeSettings({ adaptiveLabels: 'yes' }).adaptiveLabels).toBe(false);
+	});
+});

@@ -276,6 +276,10 @@
 	font-weight: 600;
 }
 
+.gx-label-major {
+	font-weight: 600;
+}
+
 .gx-card {
 	position: absolute;
 	top: 0;

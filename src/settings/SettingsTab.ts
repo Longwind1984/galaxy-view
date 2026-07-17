@@ -130,6 +130,17 @@ export class GalaxySettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName(t('set.adaptiveLabels'))
+			.setDesc(t('set.adaptiveLabels.desc'))
+			.addToggle((tg) =>
+				tg.setValue(s.adaptiveLabels).onChange(async (v) => {
+					s.adaptiveLabels = v;
+					await this.plugin.saveSettings();
+					this.eachView((view) => view.controller?.syncFromSettings());
+				}),
+			);
+
+		new Setting(containerEl)
 			.setName(t('set.reset'))
 			.setDesc(t('set.reset.desc'))
 			.addButton((b) => {

@@ -115,6 +115,8 @@ export const EN = {
 	'sizeBy.uniform': 'Size: uniform',
 	'look.starfield.on': 'Starfield: on',
 	'look.starfield.off': 'Starfield: off',
+	'look.adaptiveLabels.on': 'Zoom labels: on',
+	'look.adaptiveLabels.off': 'Zoom labels: off',
 	'preset.deepSpace': 'Visual: deep space',
 	'preset.adaptive': 'Visual: match theme',
 	// —— advanced toggles ——
@@ -195,6 +197,8 @@ export const EN = {
 	'set.ghostEdges.desc': 'Dashed edges for pending link suggestions from the Constellation plugin. They turn solid once you accept them there.',
 	'set.starfield': 'Starfield background',
 	'set.starfield.desc': 'The deep-space sphere of background stars',
+	'set.adaptiveLabels': 'Zoom-aware node labels',
+	'set.adaptiveLabels.desc': 'Size names by link count, showing major nodes first and revealing smaller ones as you zoom in',
 	'set.reset': 'Reset all Galaxy View settings',
 	'set.reset.desc': 'Restore every setting to its default',
 	'set.reset.cta': 'Reset',

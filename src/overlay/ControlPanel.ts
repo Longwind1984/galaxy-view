@@ -14,6 +14,7 @@ export interface ControlPanelCallbacks {
 	onBloom: () => void;
 	onPhysics: () => void;
 	onLook: () => void;
+	onAdaptiveLabels: (on: boolean) => void;
 	onSpace: () => void;
 	onCruise: (on: boolean) => void;
 	onCruiseSpeed: () => void;
@@ -85,6 +86,7 @@ export class ControlPanel {
 	private orphanBtn: HTMLButtonElement | null = null;
 	private tagBtn: HTMLButtonElement | null = null;
 	private sizeByBtn: HTMLButtonElement | null = null;
+	private adaptiveLabelsBtn: HTMLButtonElement | null = null;
 	private starfieldBtn: HTMLButtonElement | null = null;
 	private tourPlayBtn: HTMLButtonElement | null = null;
 	private presetHost: HTMLElement | null = null;
@@ -186,6 +188,15 @@ export class ControlPanel {
 			this.sizeByBtn?.setText(this.sizeByLabel());
 			this.tracked(cb.onSizeBy);
 		});
+		const labelsRow = lookSec.createDiv({ cls: 'galaxy-panel-row' });
+		this.adaptiveLabelsBtn = labelsRow.createEl('button', { text: this.adaptiveLabelsLabel() });
+		this.adaptiveLabelsBtn.addEventListener('click', () => {
+			s.adaptiveLabels = !s.adaptiveLabels;
+			this.adaptiveLabelsBtn?.setText(this.adaptiveLabelsLabel());
+			this.adaptiveLabelsBtn?.toggleClass('is-on', s.adaptiveLabels);
+			this.tracked(() => cb.onAdaptiveLabels(s.adaptiveLabels));
+		});
+		this.adaptiveLabelsBtn.toggleClass('is-on', s.adaptiveLabels);
 		const themeSel = lookSec.createEl('select', { cls: 'gx-theme-select' });
 		const customOpt = themeSel.createEl('option', { text: t('look.theme.placeholder'), value: '' });
 		customOpt.disabled = true;
@@ -658,6 +669,9 @@ export class ControlPanel {
 	private starfieldLabel(): string {
 		return this.settings.showStarfield ? t('look.starfield.on') : t('look.starfield.off');
 	}
+	private adaptiveLabelsLabel(): string {
+		return this.settings.adaptiveLabels ? t('look.adaptiveLabels.on') : t('look.adaptiveLabels.off');
+	}
 	private unresolvedLabel(): string {
 		return this.settings.showUnresolved ? t('adv.unresolved.on') : t('adv.unresolved.off');
 	}
@@ -676,6 +690,8 @@ export class ControlPanel {
 		this.orphanBtn?.setText(this.orphanLabel());
 		this.tagBtn?.setText(this.tagLabel());
 		this.sizeByBtn?.setText(this.sizeByLabel());
+		this.adaptiveLabelsBtn?.setText(this.adaptiveLabelsLabel());
+		this.adaptiveLabelsBtn?.toggleClass('is-on', this.settings.adaptiveLabels);
 		this.starfieldBtn?.setText(this.starfieldLabel());
 		this.buildPresets();
 		this.refreshMarkers();

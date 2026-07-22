@@ -1,5 +1,5 @@
-import type { App } from 'obsidian';
-import { Component, debounce, getAllTags } from 'obsidian';
+import type { App, TAbstractFile } from 'obsidian';
+import { Component, TFile, TFolder, debounce, getAllTags } from 'obsidian';
 import type { GraphData } from '../types';
 import { buildGraph } from './buildGraph';
 import { applyFilter, folderStats, isFilterActive, parseFilterQuery, type FilterQuery, type NoteFilter } from './noteFilter';
@@ -8,6 +8,9 @@ import type { Adjacency } from './Adjacency';
 import { seedPosition, seedRadius } from './seed';
 import { readGhostEdges } from '../settings/ghostEdgeImport';
 import type { GhostEdgeRecord } from '../settings/ghostEdgeImport';
+import { isMarkdownFile, selectGraphFiles } from './graphFiles';
+import { CanvasLinkCache, mergeResolvedLinks, parseCanvasFileLinks } from './canvasLinks';
+import { boundedTagHubLimit } from './tagLens';
 
 /** 幽灵边（Constellation 待定建议）：节点下标 + 强度。不计 degree、不进邻接、不参与布局力。 */
 export interface GhostLink {
@@ -31,6 +34,8 @@ export class GraphStore extends Component {
 	private includeUnresolved = false;
 	private includeOrphans = true;
 	private includeTags = false;
+	private showTagHubs = false;
+	private tagHubLimit = 20;
 	/** 笔记过滤（#11）：文件夹显隐（图例，主）＋ 文本查询（逃生口，次） */
 	private filter: NoteFilter = { hiddenFolders: new Set(), query: [] };
 	/**
@@ -47,6 +52,11 @@ export class GraphStore extends Component {
 	private showGhostEdges = true;
 	private ghostRaw: GhostEdgeRecord[] = [];
 	private ghostKey = '';
+	/** Core Obsidian 1.13 does not index Canvas metadata; cache file-card links separately. */
+	private readonly canvasLinks = new CanvasLinkCache();
+	private dirtyCanvasPaths = new Set<string>();
+	private structuralCanvasPaths = new Set<string>();
+	private active = false;
 
 	constructor(private app: App) {
 		super();
@@ -57,26 +67,125 @@ export class GraphStore extends Component {
 		includeUnresolved: boolean,
 		includeOrphans: boolean,
 		includeTags: boolean,
+		showTagHubs: boolean,
+		tagHubLimit: number,
 		filter: { hiddenFolders: string[]; query: string },
 		onChanged: () => void,
 	): void {
 		this.includeUnresolved = includeUnresolved;
 		this.includeOrphans = includeOrphans;
 		this.includeTags = includeTags;
+		this.showTagHubs = showTagHubs;
+		this.tagHubLimit = boundedTagHubLimit(tagHubLimit);
 		// 走字段而非 setter：后者会自己触发一次重建，而调用方紧接着就要 rebuild(false)
 		this.filter = { hiddenFolders: new Set(filter.hiddenFolders), query: parseFilterQuery(filter.query) };
 		this.onChanged = onChanged;
+		this.active = true;
 		const rebuildSoon = debounce(() => this.rebuild(true), 800, true);
+		const refreshCanvasSoon = debounce(() => {
+			const paths = [...this.dirtyCanvasPaths];
+			const structuralPaths = new Set(this.structuralCanvasPaths);
+			this.dirtyCanvasPaths.clear();
+			this.structuralCanvasPaths.clear();
+			void this.refreshCanvasFiles(paths, structuralPaths);
+		}, 800, true);
+		const markCanvasDirty = (path: string, structural = false) => {
+			this.canvasLinks.mark(path);
+			this.dirtyCanvasPaths.add(path);
+			if (structural) this.structuralCanvasPaths.add(path);
+			refreshCanvasSoon();
+		};
+		this.register(() => {
+			this.active = false;
+			rebuildSoon.cancel();
+			refreshCanvasSoon.cancel();
+			this.dirtyCanvasPaths.clear();
+			this.structuralCanvasPaths.clear();
+		});
 		this.registerEvent(this.app.metadataCache.on('resolved', rebuildSoon));
-		this.registerEvent(this.app.vault.on('rename', rebuildSoon));
-		this.registerEvent(this.app.vault.on('delete', rebuildSoon));
+		this.registerEvent(this.app.vault.on('create', (file) => {
+			if (isCanvasFile(file)) markCanvasDirty(file.path, true);
+			else if (file instanceof TFile && isMarkdownFile(file)) rebuildSoon();
+		}));
+		this.registerEvent(this.app.vault.on('modify', (file) => {
+			if (isCanvasFile(file)) markCanvasDirty(file.path);
+		}));
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+			if (file instanceof TFolder) {
+				this.canvasLinks.renameTree(oldPath, file.path);
+				const canvases = this.app.vault.getFiles().filter((child) => isCanvasFile(child) && isPathInside(child.path, file.path));
+				if (canvases.length === 0) rebuildSoon();
+				else canvases.forEach((child) => markCanvasDirty(child.path, true));
+				return;
+			}
+			const wasCanvas = isCanvasPath(oldPath);
+			const isCanvas = isCanvasFile(file);
+			if (wasCanvas && isCanvas) {
+				this.canvasLinks.renameFile(oldPath, file.path, true);
+				markCanvasDirty(file.path, true);
+			} else if (wasCanvas) {
+				this.canvasLinks.remove(oldPath);
+				rebuildSoon();
+			} else if (isCanvas) {
+				this.canvasLinks.renameFile(oldPath, file.path, false);
+				markCanvasDirty(file.path, true);
+			} else if (isMarkdownPath(oldPath) || (file instanceof TFile && isMarkdownFile(file))) {
+				this.canvasLinks.renameFile(oldPath, file.path, false);
+				rebuildSoon();
+			}
+		}));
+		this.registerEvent(this.app.vault.on('delete', (file) => {
+			if (file instanceof TFolder) this.canvasLinks.removeTree(file.path);
+			else if (isCanvasFile(file) || isCanvasPath(file.path)) this.canvasLinks.remove(file.path);
+			if (file instanceof TFolder || isCanvasPath(file.path) || isMarkdownPath(file.path)) rebuildSoon();
+		}));
 	}
 
 	async ensureCacheReady(): Promise<void> {
-		if (Object.keys(this.app.metadataCache.resolvedLinks).length > 0) return;
-		await new Promise<void>((resolve) => {
-			this.registerEvent(this.app.metadataCache.on('resolved', () => resolve()));
-		});
+		await this.loadCanvasLinks();
+	}
+
+	/** Initial O(total Canvas bytes) read, once before the first graph build. */
+	private async loadCanvasLinks(): Promise<void> {
+		const canvases = this.app.vault.getFiles().filter(isCanvasFile);
+		for (let offset = 0; offset < canvases.length; offset += 8) {
+			await Promise.all(canvases.slice(offset, offset + 8).map(async (file) => {
+				const path = file.path;
+				const revision = this.canvasLinks.capture(path);
+				try {
+					const parsed = parseCanvasFileLinks(await this.app.vault.cachedRead(file));
+					if (this.active && parsed !== null) this.canvasLinks.apply(path, revision, parsed);
+				} catch {
+					// A later modify event retries; an initial failure simply contributes no Canvas edges.
+				}
+			}));
+			if (!this.active) return;
+		}
+	}
+
+	/** Debounced incremental refresh: reread only changed Canvas files, then rebuild once. */
+	private async refreshCanvasFiles(paths: readonly string[], structuralPaths: ReadonlySet<string>): Promise<void> {
+		if (paths.length === 0) return;
+		let shouldRebuild = paths.some((path) => structuralPaths.has(path));
+		for (const path of new Set(paths)) {
+			const revision = this.canvasLinks.capture(path);
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (!(file instanceof TFile) || !isCanvasFile(file)) {
+				shouldRebuild = this.canvasLinks.remove(path) || shouldRebuild;
+				continue;
+			}
+			try {
+				const parsed = parseCanvasFileLinks(await this.app.vault.cachedRead(file));
+				if (!this.active) return;
+				if (parsed === null) continue; // Obsidian may emit modify while JSON is mid-write.
+				const applied = this.canvasLinks.apply(path, revision, parsed);
+				// Even unchanged links need one rebuild so file size/date-derived data stays current.
+				shouldRebuild = applied.accepted || shouldRebuild;
+			} catch {
+				// Preserve the last good cache on transient read errors.
+			}
+		}
+		if (shouldRebuild && this.active) this.rebuild(true);
 	}
 
 	setIncludeUnresolved(v: boolean): void {
@@ -107,6 +216,15 @@ export class GraphStore extends Component {
 		if (v === this.includeTags) return;
 		this.includeTags = v;
 		this.rebuild(true);
+	}
+
+	/** showTags 是数据总闸；总闸关闭时只记设置，不为无效 hubs 白重建。 */
+	setTagHubs(show: boolean, limit: number): void {
+		const bounded = boundedTagHubLimit(limit);
+		if (show === this.showTagHubs && bounded === this.tagHubLimit) return;
+		this.showTagHubs = show;
+		this.tagHubLimit = bounded;
+		if (this.includeTags) this.rebuild(true);
 	}
 
 	/**
@@ -171,8 +289,8 @@ export class GraphStore extends Component {
 
 	/** preservePositions=false 用于基准（全新确定性种子 → 完整冷布局） */
 	rebuild(preservePositions: boolean): void {
-		const withTags = this.includeTags; // 仅开启时才取标签，省掉每次重建的 getFileCache 开销
-		const all = this.app.vault.getMarkdownFiles();
+		const withTags = this.includeTags; // 总闸关闭时不取 cache，chips/颜色/hubs 都无隐藏成本
+		const all = selectGraphFiles(this.app.vault.getFiles());
 		this.folders = folderStats(all); // 图例：全量算，不受过滤影响（否则 chip 数字会互相跳）
 		// TFile 自带 path/basename，结构上就满足 FilterableRecord —— 先过滤再 map，
 		// 被滤掉的笔记既不付 getFileCache 的钱，也不进对象分配
@@ -182,16 +300,19 @@ export class GraphStore extends Component {
 				basename: f.basename,
 				size: f.stat.size,
 			};
-			if (withTags) {
+			if (withTags && isMarkdownFile(f)) {
 				const cache = this.app.metadataCache.getFileCache(f);
 				rec.tags = cache ? (getAllTags(cache) ?? []) : [];
 			}
 			return rec;
 		});
-		const next = buildGraph(files, this.app.metadataCache.resolvedLinks, this.app.metadataCache.unresolvedLinks, {
+		const resolvedLinks = mergeResolvedLinks(this.app.metadataCache.resolvedLinks, this.canvasLinks.asLinkTable());
+		const next = buildGraph(files, resolvedLinks, this.app.metadataCache.unresolvedLinks, {
 			includeUnresolved: this.includeUnresolved,
 			includeOrphans: this.includeOrphans,
 			includeTags: this.includeTags,
+			includeTagHubs: this.includeTags && this.showTagHubs,
+			tagHubLimit: this.tagHubLimit,
 			nodeCap: this.nodeCap,
 			linkCap: this.linkCap,
 		});
@@ -225,6 +346,23 @@ export class GraphStore extends Component {
 		this.onChanged?.();
 		void this.refreshGhost(); // 顺带异步重读文件：接受建议→真实链接落盘→重建时虚线自然消失
 	}
+}
+
+function isCanvasPath(path: string): boolean {
+	return path.toLowerCase().endsWith('.canvas');
+}
+
+function isMarkdownPath(path: string): boolean {
+	return path.toLowerCase().endsWith('.md');
+}
+
+function isCanvasFile(file: TAbstractFile): file is TFile {
+	return file instanceof TFile && file.extension.toLowerCase() === 'canvas';
+}
+
+function isPathInside(path: string, folderPath: string): boolean {
+	const prefix = folderPath.endsWith('/') ? folderPath : `${folderPath}/`;
+	return path.startsWith(prefix);
 }
 
 /** 词表等价判断：语义相同的两次输入（`file:a` / `file:  a`）不该白触发一次重建 */

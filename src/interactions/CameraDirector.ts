@@ -1,6 +1,7 @@
 import { CatmullRomCurve3, MOUSE, PerspectiveCamera, Spherical, Vector3 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CRUISE, FLY_TO } from '../constants';
+import { progress01, safeFrameSeconds } from '../timing/frameClock';
 
 function easeInOutCubic(t: number): number {
 	return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -13,7 +14,7 @@ const FRAMING_MARGIN = 1.5;
 const DRAG_THRESHOLD_PX = 4; // 指针移动超过此阈值才算「拖动」→ 才打断环绕；纯点击（选点）不打断
 
 interface Tween {
-	t0: number;
+	elapsedMs: number;
 	durMs: number;
 	fromPos: Vector3;
 	toPos: Vector3;
@@ -24,7 +25,7 @@ interface Tween {
 
 /** 样条路径运动（巡游用）：相机沿 CatmullRom 曲线走，看向切线前瞻或固定点 */
 interface PathTween {
-	t0: number;
+	elapsedMs: number;
 	durMs: number;
 	curve: CatmullRomCurve3;
 	lookMode: 'tangent' | 'fixed';
@@ -76,7 +77,7 @@ export class CameraDirector {
 	private pathTan2 = new Vector3();
 	private pathRight = new Vector3();
 	private pathUp = new Vector3();
-	private lastInputAt = 0;
+	private idleMs = 0;
 	private cruiseAnchor: Spherical | null = null;
 	private cruiseT = 0;
 	private cruiseDir = 1;
@@ -97,8 +98,6 @@ export class CameraDirector {
 		this.controls = new OrbitControls(camera, dom);
 		this.controls.enableDamping = true;
 		this.controls.dampingFactor = 0.08;
-		this.lastInputAt = performance.now();
-
 		dom.tabIndex = 0; // 画布可聚焦 → 键盘飞行不影响 Obsidian 其他快捷键
 		this.bindPointer();
 		this.bindKeys();
@@ -109,7 +108,7 @@ export class CameraDirector {
 	}
 
 	private markInput(): void {
-		this.lastInputAt = performance.now();
+		this.idleMs = 0;
 		this.cruiseAnchor = null;
 		this.tween = null; // 任何输入打断飞行（停在当前位置，不跳变）
 		this.path = null; // 任何输入也打断巡游路径
@@ -138,7 +137,7 @@ export class CameraDirector {
 		// 用 uniform（'catmullrom'）而非默认 'centripetal'：后者按点距开方，控制点异常时更脆。
 		const curve = new CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
 		this.path = {
-			t0: performance.now(),
+			elapsedMs: 0,
 			durMs: Math.max(1, durMs),
 			curve,
 			lookMode: opts.lookMode ?? 'tangent',
@@ -245,7 +244,7 @@ export class CameraDirector {
 		move.normalize().multiplyScalar(speed * deltaS);
 		this.camera.position.add(move);
 		this.controls.target.add(move);
-		this.lastInputAt = performance.now();
+		this.idleMs = 0;
 		return true;
 	}
 
@@ -285,7 +284,7 @@ export class CameraDirector {
 	beginFocusOrbit(densityDir: Vector3 | null): void {
 		this.pendingDensityDir = densityDir;
 		this.cruiseAnchor = null;
-		this.lastInputAt = performance.now() - CRUISE.resumeDelayMs - 1;
+		this.idleMs = CRUISE.resumeDelayMs + 1;
 	}
 
 	flyTo(nodePos: Vector3, nodeRadius: number, onDone?: () => void): void {
@@ -304,7 +303,7 @@ export class CameraDirector {
 
 	private startTween(toPos: Vector3, toTarget: Vector3, durMs: number, onDone?: () => void): void {
 		this.tween = {
-			t0: performance.now(),
+			elapsedMs: 0,
 			durMs,
 			fromPos: this.camera.position.clone(),
 			toPos,
@@ -315,10 +314,17 @@ export class CameraDirector {
 	}
 
 	/** 每帧驱动；返回当前是否处于巡航中（HUD 显示用） */
-	update(now: number, deltaS: number): boolean {
+	update(now: number, animationDeltaS: number, motionDeltaS = animationDeltaS): boolean {
+		// 相机运动只累计帧间隔，不使用 rAF 的绝对时间戳。弹出窗口可有不同的
+		// performance.timeOrigin；绝对时间混用会产生负进度并把相机外插到远处（#14）。
+		void now;
+		const frameS = safeFrameSeconds(animationDeltaS);
+		const motionFrameS = safeFrameSeconds(motionDeltaS);
+		const frameMs = frameS * 1000;
 		if (this.path) {
 			const pt = this.path;
-			const t = Math.min((now - pt.t0) / pt.durMs, 1);
+			pt.elapsedMs += frameMs;
+			const t = progress01(pt.elapsedMs, pt.durMs);
 			const u = easeInOutCubic(t);
 			// 曲线采样兜底：即便清洗后仍触发 three.js 边界异常，也绝不让它冒泡冻结整个渲染循环——
 			// 就地放弃这段路径、把地平线交回 OrbitControls。
@@ -328,14 +334,14 @@ export class CameraDirector {
 				this.camera.up.set(0, 1, 0);
 				this.path = null;
 				pt.onDone?.();
-				this.lastInputAt = now;
+				this.idleMs = 0;
 				return false;
 			}
 			if (!Number.isFinite(this.pathPos.x) || !Number.isFinite(this.pathPos.y) || !Number.isFinite(this.pathPos.z)) {
 				this.camera.up.set(0, 1, 0);
 				this.path = null;
 				pt.onDone?.();
-				this.lastInputAt = now;
+				this.idleMs = 0;
 				return false;
 			}
 			this.camera.position.copy(this.pathPos);
@@ -362,14 +368,15 @@ export class CameraDirector {
 				this.camera.up.set(0, 1, 0); // 交回 OrbitControls 前重置地平线
 				this.path = null;
 				pt.onDone?.();
-				this.lastInputAt = now; // 到达后等满闲置时长再起巡航
+				this.idleMs = 0; // 到达后等满闲置时长再起巡航
 			}
 			return false;
 		}
 
 		if (this.tween) {
 			const tw = this.tween;
-			const t = Math.min((now - tw.t0) / tw.durMs, 1);
+			tw.elapsedMs += frameMs;
+			const t = progress01(tw.elapsedMs, tw.durMs);
 			const k = easeInOutCubic(t);
 			this.camera.position.lerpVectors(tw.fromPos, tw.toPos, k);
 			this.controls.target.lerpVectors(tw.fromTarget, tw.toTarget, k);
@@ -377,17 +384,17 @@ export class CameraDirector {
 			if (t >= 1) {
 				this.tween = null;
 				tw.onDone?.();
-				this.lastInputAt = now; // 到达后等满闲置时长再起巡航
+				this.idleMs = 0; // 到达后等满闲置时长再起巡航
 			}
 			return false;
 		}
 
-		const flying = this.applyFly(deltaS);
+		const flying = this.applyFly(motionFrameS);
 
-		const idleMs = now - this.lastInputAt;
-		if (!flying && (this.cruiseEnabled || this.tourActive) && idleMs > CRUISE.resumeDelayMs) {
+		if (!flying) this.idleMs += frameMs;
+		if (!flying && (this.cruiseEnabled || this.tourActive) && this.idleMs > CRUISE.resumeDelayMs) {
 			// 0→满速渐起，无顿挫
-			const ramp = Math.min((idleMs - CRUISE.resumeDelayMs) / CRUISE.rampUpMs, 1);
+			const ramp = Math.min(Math.max((this.idleMs - CRUISE.resumeDelayMs) / CRUISE.rampUpMs, 0), 1);
 			if (!this.cruiseAnchor) {
 				this.cruiseAnchor = new Spherical().setFromVector3(
 					this.tmpOffset.copy(this.camera.position).sub(this.controls.target),
@@ -404,7 +411,7 @@ export class CameraDirector {
 				}
 				this.pendingDensityDir = null;
 			}
-			this.cruiseT += deltaS * ramp;
+			this.cruiseT += frameS * ramp;
 			const t = this.cruiseT;
 			const a = this.cruiseAnchor;
 			const elev = ((CRUISE.elevationDeg * Math.PI) / 180) * Math.sin((2 * Math.PI * t) / CRUISE.elevationPeriodS);

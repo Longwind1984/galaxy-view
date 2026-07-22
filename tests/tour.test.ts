@@ -25,7 +25,7 @@ describe('TourDirector state machine', () => {
 		const td = new TourDirector(h);
 		td.startWander(1);
 		expect(h.onStateChange).toHaveBeenCalledWith(true);
-		td.tick(1000);
+		td.tick(0);
 		expect(h.selectNode).toHaveBeenCalledTimes(1);
 		expect(h.selectNode.mock.calls[0]?.[1]).toBe(true);
 	});
@@ -34,10 +34,10 @@ describe('TourDirector state machine', () => {
 		const h = mockHooks();
 		const td = new TourDirector(h);
 		td.startWander(1);
-		td.tick(1000);
-		td.tick(1100); // 停留内
+		td.tick(0);
+		td.tick(0.1); // 停留内
 		expect(h.selectNode).toHaveBeenCalledTimes(1);
-		td.tick(1000 + 6000); // 过停留
+		td.tick(5); // 过停留
 		expect(h.selectNode).toHaveBeenCalledTimes(2);
 	});
 
@@ -46,9 +46,9 @@ describe('TourDirector state machine', () => {
 		const td = new TourDirector(h);
 		td.startWander(1);
 		td.tick(0); // 拍1 → 回顾
-		td.tick(6000); // 拍2 → 回顾
-		td.tick(12000); // 拍3 → 回顾
-		td.tick(18000); // 拍4 → 飞掠
+		td.tick(5); // 拍2 → 回顾
+		td.tick(5); // 拍3 → 回顾
+		td.tick(5); // 拍4 → 飞掠
 		expect(h.selectNode).toHaveBeenCalledTimes(3);
 		expect(h.flyPath).toHaveBeenCalledTimes(1);
 	});
@@ -59,10 +59,10 @@ describe('TourDirector state machine', () => {
 		td.startGuided([0, 1, 2], 1);
 		expect(h.onStateChange).toHaveBeenCalledWith(true);
 		td.tick(0);
-		td.tick(6000);
-		td.tick(12000);
+		td.tick(5);
+		td.tick(5);
 		expect(h.selectNode).toHaveBeenCalledTimes(3);
-		td.tick(18000); // 队列走完
+		td.tick(5); // 队列走完
 		expect(h.recenter).toHaveBeenCalled();
 	});
 
@@ -71,13 +71,24 @@ describe('TourDirector state machine', () => {
 		const td = new TourDirector(h);
 		td.startGuided([0], 1);
 		expect(td.isRunning).toBe(false);
-		td.tick(1000);
+		td.tick(0);
 		expect(h.selectNode).not.toHaveBeenCalled();
 	});
 
 	it('未 start 时 tick 不动作', () => {
 		const h = mockHooks();
-		new TourDirector(h).tick(1000);
+		new TourDirector(h).tick(0);
 		expect(h.selectNode).not.toHaveBeenCalled();
+	});
+
+	it('跨窗口负帧间隔不会提前结束停留', () => {
+		const h = mockHooks();
+		const td = new TourDirector(h);
+		td.startWander(1);
+		td.tick(0);
+		td.tick(-1_000_000); // 新窗口 timeOrigin 更小所产生的异常帧间隔
+		expect(h.selectNode).toHaveBeenCalledTimes(1);
+		td.tick(5);
+		expect(h.selectNode).toHaveBeenCalledTimes(2);
 	});
 });

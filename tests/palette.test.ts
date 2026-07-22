@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { assignFolderHues, folderColor, folderCoveredByGroups } from '../src/render/palette';
+import { assignFolderHues, fallbackColorFn, folderColor, folderCoveredByGroups, makeTagColorFn } from '../src/render/palette';
+import type { GraphNode } from '../src/types';
 
 // 注意：three 的 setHSL 在线性空间算、getHexString 转回 sRGB，故色值不是朴素 HSL→RGB 的结果
 const hex = (folder: string) => `#${folderColor(folder, false).getHexString()}`;
@@ -99,5 +100,31 @@ describe('assignFolderHues（撞色修复）', () => {
 		assignFolderHues(['Y', 'X'], () => false); // Y 升到第一
 		expect(hex('Y')).not.toBe(before);
 		expect(hex('Y')).toBe('#eca2a2'); // hue 0
+	});
+});
+
+describe('makeTagColorFn', () => {
+	const note = (id: string, tags: string[]): GraphNode => ({
+		id,
+		name: id,
+		folderTop: 'Folder',
+		degree: 0,
+		inDegree: 0,
+		outDegree: 0,
+		fileSize: 0,
+		tags,
+		unresolved: false,
+		tag: false,
+	});
+
+	it('按第一个标签稳定着色；同标签同色，不同标签不同色', () => {
+		const color = makeTagColorFn(fallbackColorFn);
+		expect(color(note('a.md', ['#shared', '#other'])).getHex()).toBe(color(note('b.md', ['#shared'])).getHex());
+		expect(color(note('a.md', ['#shared'])).getHex()).not.toBe(color(note('c.md', ['#different'])).getHex());
+	});
+
+	it('无标签笔记回落既有文件夹配色', () => {
+		const node = note('plain.md', []);
+		expect(makeTagColorFn(fallbackColorFn)(node).getHex()).toBe(fallbackColorFn(node).getHex());
 	});
 });

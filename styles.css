@@ -784,6 +784,46 @@
 .gx-folder.is-off { opacity: 0.38; }
 .gx-folder.is-off .gx-folder-dot { background: transparent; box-shadow: none; border: 1px solid rgba(150, 160, 185, 0.7); }
 
+/* Tag Lens：紧凑单选 chips；标签沿用图中现有 tag 节点配色，不另建颜色体系。 */
+.gx-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 8px;
+}
+.gx-tags.is-hidden { display: none; }
+button.gx-tag-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: 100%;
+	padding: 3px 7px;
+	border-radius: 999px;
+	border: 1px solid rgba(140, 160, 210, 0.2);
+	background: rgba(140, 150, 180, 0.09);
+	color: inherit;
+	font-size: 10.5px;
+	line-height: 1.25;
+	cursor: pointer;
+	box-shadow: none;
+}
+button.gx-tag-chip:hover { background: rgba(127, 155, 255, 0.16); }
+button.gx-tag-chip.is-active {
+	border-color: rgba(127, 155, 255, 0.6);
+	background: rgba(127, 155, 255, 0.24);
+	box-shadow: inset 0 0 0 1px rgba(127, 155, 255, 0.22);
+}
+.gx-tag-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-tag-count { color: rgba(150, 160, 185, 0.65); font-variant-numeric: tabular-nums; }
+.gx-tag-chip.is-active .gx-tag-count { color: rgba(220, 227, 255, 0.82); }
+.gx-theme-light .gx-zone-section > summary {
+	color: rgba(79, 91, 111, 0.78);
+	border-bottom-color: rgba(72, 81, 98, 0.15);
+}
+.gx-theme-light .gx-zone-section > summary:hover { color: rgba(45, 55, 72, 0.94); }
+.gx-theme-light .gx-tag-count { color: rgba(79, 91, 111, 0.72); }
+.gx-theme-light .gx-tag-chip.is-active .gx-tag-count { color: rgba(31, 41, 51, 0.82); }
+
 /* 文本查询逃生口（次）：默认折叠，只给图例表达不了的横切模式 */
 .gx-filter-esc { margin-top: 9px; border-top: 1px dashed rgba(140, 150, 180, 0.16); padding-top: 8px; }
 .gx-filter-esc-t {

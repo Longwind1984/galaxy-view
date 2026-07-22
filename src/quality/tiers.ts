@@ -19,6 +19,11 @@ export interface QualityTier {
 	hoverThrottleMs: number | null; // null = 仅 tap（触屏无 hover）
 }
 
+/** 同一档位下 WebGL 主渲染与后处理链共用的有效设备像素比。 */
+export function effectivePixelRatio(devicePixelRatio: number, cap: number): number {
+	return Math.min(devicePixelRatio, cap);
+}
+
 export const TIERS: Record<TierId, QualityTier> = {
 	high: {
 		id: 'high',

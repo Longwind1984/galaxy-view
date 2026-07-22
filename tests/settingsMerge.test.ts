@@ -83,3 +83,33 @@ describe('mergeSettings v0.5 兼容（笔记过滤 #11）', () => {
 		expect(mergeSettings({ filterQuery: null }).filterQuery).toBe('');
 	});
 });
+
+describe('mergeSettings Tag Lens', () => {
+	it('旧存档默认无 Lens，新存档保留标签 id', () => {
+		expect(mergeSettings({ showTags: true }).tagLens).toBeNull();
+		expect(mergeSettings({ showTags: true, tagLens: 'tag:#shared' }).tagLens).toBe('tag:#shared');
+	});
+
+	it('非字符串持久化值回落 null', () => {
+		expect(mergeSettings({ tagLens: 42 }).tagLens).toBeNull();
+		expect(mergeSettings({ tagLens: false }).tagLens).toBeNull();
+	});
+
+	it('旧存档补齐默认关闭的标签颜色/hubs 与默认上限', () => {
+		const m = mergeSettings({ showTags: true });
+		expect(m.colorByTag).toBe(false);
+		expect(m.showTagHubs).toBe(false);
+		expect(m.tagHubLimit).toBe(20);
+	});
+
+	it('新设置持久化；hub limit 被限制在 5–50', () => {
+		expect(mergeSettings({ colorByTag: true, showTagHubs: true, tagHubLimit: 37 })).toMatchObject({
+			colorByTag: true,
+			showTagHubs: true,
+			tagHubLimit: 37,
+		});
+		expect(mergeSettings({ tagHubLimit: 1 }).tagHubLimit).toBe(5);
+		expect(mergeSettings({ tagHubLimit: 99 }).tagHubLimit).toBe(50);
+		expect(mergeSettings({ tagHubLimit: 'many' }).tagHubLimit).toBe(20);
+	});
+});

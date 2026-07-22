@@ -1,4 +1,5 @@
 import type { GraphData, GraphLink, GraphNode } from '../types';
+import { boundedTagHubLimit, topTags } from './tagLens';
 
 
 /** 输入用纯记录，不依赖 obsidian —— 可单测（设计要求） */
@@ -14,8 +15,12 @@ export type LinkTable = Record<string, Record<string, number>>;
 export interface BuildOptions {
 	includeUnresolved: boolean;
 	includeOrphans: boolean;
-	/** 标签作为节点：每篇笔记连到它带的标签合成节点上（共享 tag 的笔记通过标签星成簇） */
+	/** 读取并透传笔记标签；本身不生成节点或边。 */
 	includeTags?: boolean;
+	/** 只有 includeTags 同时开启才生成 top-N 标签 hub。 */
+	includeTagHubs?: boolean;
+	/** 用户设置范围 5–50；构建端再次收口，防止旧/损坏存档制造无界图。 */
+	tagHubLimit?: number;
 	/** 移动档：按度数取 top N 节点（保枢纽结构），null=不限 */
 	nodeCap?: number | null;
 	/** 移动档：按 min(端点度数) 取 top N 边，null=不限 */
@@ -30,7 +35,7 @@ export function topFolder(path: string): string {
 
 /**
  * vault 快照 → 图模型。
- * - 只收 files 集合内的目标（附件等非 md 链接目标被丢弃）
+ * - 只收 files 集合内的目标（附件等非图节点目标被丢弃）
  * - resolvedLinks 本身已按 (src,dst) 去重（值是出现次数），无需再去重
  * - degree = 出度 + 入度
  */
@@ -53,6 +58,7 @@ export function buildGraph(
 			inDegree: 0,
 			outDegree: 0,
 			fileSize: f.size ?? 0,
+			tags: opts.includeTags ? [...new Set(f.tags ?? [])] : [],
 			unresolved: false,
 			tag: false,
 		});
@@ -103,6 +109,7 @@ export function buildGraph(
 						inDegree: 0,
 						outDegree: 0,
 						fileSize: 0,
+						tags: [],
 						unresolved: true,
 						tag: false,
 					});
@@ -112,32 +119,34 @@ export function buildGraph(
 		}
 	}
 
-	if (opts.includeTags) {
-		// 每篇笔记 → 它的标签合成节点（复用 unresolved 同构模式）。
-		// 新增边数 = 标签出现总次数（线性），不是「共享 tag 两两连」的 N² 爆炸。
-		for (const f of files) {
-			const si = indexById.get(f.path);
-			if (si === undefined) continue;
-			for (const rawTag of new Set(f.tags ?? [])) {
-				// 同笔记 frontmatter+正文可能重复同一 tag，去重防重边
-				const tagId = `tag:${rawTag}`;
-				let ti = indexById.get(tagId);
-				if (ti === undefined) {
-					ti = nodes.length;
-					indexById.set(tagId, ti);
-					nodes.push({
-						id: tagId,
-						name: rawTag, // 带 # 前缀
-						folderTop: '__tag__',
-						degree: 0,
-						inDegree: 0,
-						outDegree: 0,
-						fileSize: 0,
-						unresolved: false,
-						tag: true,
-					});
-				}
-				addLink(si, ti);
+	if (opts.includeTags && opts.includeTagHubs) {
+		const limit = boundedTagHubLimit(opts.tagHubLimit ?? 20);
+		const ranked = topTags({ nodes, links }, limit);
+		const hubByTag = new Map<string, number>();
+		for (const stat of ranked) {
+			const ti = nodes.length;
+			hubByTag.set(stat.name, ti);
+			indexById.set(stat.id, ti);
+			nodes.push({
+				id: stat.id,
+				name: stat.name,
+				folderTop: '__tag__',
+				degree: 0,
+				inDegree: 0,
+				outDegree: 0,
+				fileSize: 0,
+				tags: [stat.name],
+				unresolved: false,
+				tag: true,
+			});
+		}
+		// 最多 limit 个 hub；新增边只遍历已有笔记 tags，一次重建 O(标签出现总数)。
+		for (let si = 0; si < nodes.length; si++) {
+			const node = nodes[si];
+			if (!node || node.tag || node.unresolved) continue;
+			for (const rawTag of node.tags) {
+				const ti = hubByTag.get(rawTag);
+				if (ti !== undefined) addLink(si, ti);
 			}
 		}
 	}

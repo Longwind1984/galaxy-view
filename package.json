@@ -1,6 +1,6 @@
 {
 	"name": "galaxy-view",
-	"version": "0.5.0",
+	"version": "0.6.0",
 	"description": "Cinematic 3D graph view for your vault — NASA Eyes style",
 	"main": "main.js",
 	"type": "module",

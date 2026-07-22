@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Galaxy View · Tag Lens</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #05070e;
+    --sky-a: #111a33;
+    --sky-b: #070a14;
+    --panel: rgba(10, 14, 24, 0.74);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --ink: #e8ecf6;
+    --faint: rgba(150, 160, 185, 0.7);
+    --button: rgba(127, 127, 127, 0.12);
+    --button-border: rgba(127, 127, 127, 0.25);
+    --section-line: rgba(140, 150, 180, 0.14);
+    --chip: rgba(140, 150, 180, 0.09);
+    --chip-border: rgba(140, 160, 210, 0.2);
+    --accent: #7f9bff;
+    --accent-soft: rgba(127, 155, 255, 0.24);
+    --link: #7280a4;
+    --node-stroke: #dce5ff;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+  }
+
+  body.is-light {
+    color-scheme: light;
+    --page: #e9e7e1;
+    --sky-a: #d6e0f1;
+    --sky-b: #f5f2ec;
+    --panel: rgba(252, 250, 245, 0.82);
+    --panel-border: rgba(31, 41, 51, 0.12);
+    --ink: #1f2933;
+    --faint: rgba(79, 91, 111, 0.72);
+    --button: rgba(72, 81, 98, 0.08);
+    --button-border: rgba(72, 81, 98, 0.18);
+    --section-line: rgba(72, 81, 98, 0.15);
+    --chip: rgba(72, 81, 98, 0.07);
+    --chip-border: rgba(72, 81, 98, 0.18);
+    --accent: #3a5fd9;
+    --accent-soft: rgba(58, 95, 217, 0.18);
+    --link: #71809e;
+    --node-stroke: #27364e;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh;
+    overflow: hidden;
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--font);
+    transition: background 180ms ease, color 180ms ease;
+  }
+
+  .sky {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(700px 560px at 60% 48%, var(--sky-a), transparent 72%),
+      radial-gradient(1000px 760px at 68% 45%, var(--sky-b), var(--page) 82%);
+  }
+
+  .graph {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .edge,
+  .node,
+  .tag-halo,
+  .node-label { transition: opacity 160ms ease, stroke 160ms ease, fill 160ms ease; }
+  .edge { stroke: var(--link); stroke-width: 1.15; opacity: 0.24; }
+  .edge.is-tag-edge { stroke-dasharray: 3 4; opacity: 0; }
+  .edge.is-active { stroke: var(--accent); stroke-width: 1.8; opacity: 0.86; }
+  .edge.is-dim { opacity: 0.035; }
+  .node { stroke: var(--node-stroke); stroke-width: 0.8; opacity: 0.9; }
+  .node.is-tag { stroke: var(--accent); stroke-width: 1.3; }
+  .node.is-hidden { opacity: 0; }
+  .node.is-active { opacity: 1; stroke-width: 1.8; }
+  .node.is-dim { opacity: 0.1; }
+  .tag-halo { fill: var(--accent); opacity: 0; }
+  .tag-halo.is-active { opacity: 0.18; }
+  .node-label { fill: var(--ink); font-size: 10px; opacity: 0; pointer-events: none; }
+  .node-label.is-active { opacity: 0.9; }
+
+  .galaxy-panel {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 4;
+    width: 252px;
+    max-height: calc(100vh - 20px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 12px;
+    user-select: none;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 14px 46px rgba(0, 0, 0, 0.22);
+    transition: background 180ms ease, border-color 180ms ease;
+  }
+
+  .galaxy-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .galaxy-panel-stats {
+    min-width: 0;
+    overflow: hidden;
+    color: inherit;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    opacity: 0.75;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .head-spacer { flex: 1; }
+  .head-button {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.6;
+    box-shadow: none;
+  }
+  .head-button:hover { opacity: 1; }
+
+  .galaxy-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 10px 10px;
+    scrollbar-width: thin;
+  }
+  .galaxy-panel-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .galaxy-panel-row button {
+    flex: 1;
+    padding: 3px 8px;
+    border: 1px solid var(--button-border);
+    border-radius: 6px;
+    background: var(--button);
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    box-shadow: none;
+  }
+  .galaxy-panel-row button:hover { background: rgba(127, 155, 255, 0.16); }
+
+  .gx-section {
+    margin-top: 8px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(127, 127, 127, 0.16);
+  }
+  .gx-section > summary {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 2px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    list-style: none;
+    opacity: 0.6;
+  }
+  .gx-section > summary::-webkit-details-marker { display: none; }
+  .gx-caret {
+    display: inline-block;
+    color: var(--faint);
+    font-size: 9px;
+    transition: transform 120ms ease;
+  }
+  .gx-section[open] > summary .gx-caret { transform: rotate(90deg); }
+  .gx-section-body { padding-top: 2px; }
+  .gx-zone-section { margin-top: 14px; padding-top: 0; border-top: 0; }
+  .gx-zone-section > summary {
+    padding: 0 2px 5px;
+    border-bottom: 1px solid var(--section-line);
+    border-radius: 0;
+    color: var(--faint);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    opacity: 1;
+    text-transform: uppercase;
+  }
+
+  .filter-line {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 6px 3px;
+    color: var(--faint);
+    font-size: 11px;
+  }
+  .folder-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #6fb3d8; }
+  .filter-line:nth-child(2) .folder-dot { background: #b889d6; }
+  .filter-line:nth-child(3) .folder-dot { background: #e0b360; }
+  .folder-name { flex: 1; }
+
+  .gx-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 8px;
+  }
+  .gx-tags.is-hidden { display: none; }
+  .gx-tag-options.is-hidden,
+  .gx-tag-hub-slider.is-hidden { display: none; }
+  .gx-tag-hub-slider {
+    display: grid;
+    grid-template-columns: 1fr 82px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 2px 1px;
+    color: var(--faint);
+    font-size: 10.5px;
+  }
+  .gx-tag-hub-slider input { width: 100%; accent-color: var(--accent); }
+  .gx-textlink {
+    margin: 6px 2px 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+    font: inherit;
+    font-size: 10px;
+  }
+  button.gx-tag-chip {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    border: 1px solid var(--chip-border);
+    border-radius: 999px;
+    background: var(--chip);
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 10.5px;
+    line-height: 1.25;
+    box-shadow: none;
+  }
+  button.gx-tag-chip:hover { background: rgba(127, 155, 255, 0.16); }
+  button.gx-tag-chip.is-active {
+    border-color: rgba(127, 155, 255, 0.6);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px rgba(127, 155, 255, 0.22);
+  }
+  .gx-tag-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gx-tag-count { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .gx-tag-chip.is-active .gx-tag-count { color: inherit; opacity: 0.82; }
+
+  .look-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 2px 3px;
+    color: var(--faint);
+    font-size: 11px;
+  }
+  .mini-rail { width: 76px; height: 2px; border-radius: 2px; background: rgba(127, 127, 127, 0.24); }
+  .mini-rail::before { display: block; width: 54%; height: 2px; border-radius: 2px; background: var(--accent); content: ""; }
+
+  @media (max-width: 600px) {
+    .galaxy-panel { left: 8px; top: 8px; max-height: calc(100vh - 16px); }
+    .graph { transform: translateX(40px); }
+  }
+</style>
+</head>
+<body>
+  <div class="sky">
+    <svg class="graph" id="graph" viewBox="0 0 1100 700" role="img" aria-label="Galaxy graph preview"></svg>
+  </div>
+
+  <aside class="galaxy-panel gx-theme-dark" aria-label="Galaxy View controls">
+    <header class="galaxy-panel-header">
+      <div class="galaxy-panel-stats">24 notes · 31 links</div>
+      <div class="head-spacer"></div>
+      <button class="head-button" id="themeButton" type="button" aria-label="Light theme" title="Light theme">☼</button>
+      <button class="head-button" type="button" aria-label="Collapse">−</button>
+    </header>
+    <div class="galaxy-panel-body">
+      <div class="galaxy-panel-row">
+        <button type="button">Search</button>
+        <button type="button">Recenter</button>
+      </div>
+
+      <details class="gx-section gx-zone-section">
+        <summary><span class="gx-caret">▸</span><span>Filter</span></summary>
+        <div class="gx-section-body">
+          <div class="filter-line"><span class="folder-dot"></span><span class="folder-name">Notes</span><span>12</span></div>
+          <div class="filter-line"><span class="folder-dot"></span><span class="folder-name">Projects</span><span>7</span></div>
+          <div class="filter-line"><span class="folder-dot"></span><span class="folder-name">Reading</span><span>5</span></div>
+        </div>
+      </details>
+
+      <details class="gx-section gx-zone-section" id="tagsSection">
+        <summary><span class="gx-caret">▸</span><span>Tags</span></summary>
+        <div class="gx-section-body">
+          <div class="galaxy-panel-row">
+            <button id="tagToggle" type="button" aria-pressed="false">Tags: hidden</button>
+          </div>
+          <div class="gx-tag-options is-hidden" id="tagOptions">
+            <div class="galaxy-panel-row">
+              <button id="tagColors" type="button" aria-pressed="false">Tag colors: off</button>
+              <button id="tagHubs" type="button" aria-pressed="false">Tag hubs: off</button>
+            </div>
+            <label class="gx-tag-hub-slider is-hidden" id="hubSliderRow">
+              <span>Tag hub count</span>
+              <input id="hubSlider" type="range" min="5" max="50" step="1" value="20" />
+            </label>
+            <button class="gx-textlink" id="tagReset" type="button">Reset tags</button>
+          </div>
+          <div class="gx-tags is-hidden" id="tagChips"></div>
+        </div>
+      </details>
+
+      <details class="gx-section gx-zone-section">
+        <summary><span class="gx-caret">▸</span><span>Appearance &amp; color</span></summary>
+        <div class="gx-section-body">
+          <div class="look-row"><span>Node size</span><span class="mini-rail"></span></div>
+          <div class="look-row"><span>Link opacity</span><span class="mini-rail"></span></div>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const TAGS = [
+    { id: "ai", name: "#ai", count: 5 },
+    { id: "product", name: "#product", count: 5 },
+    { id: "design", name: "#design", count: 4 },
+    { id: "research", name: "#research", count: 4 },
+    { id: "writing", name: "#writing", count: 4 },
+    { id: "books", name: "#books", count: 4 },
+    { id: "ideas", name: "#ideas", count: 4 },
+    { id: "tools", name: "#tools", count: 4 },
+    { id: "people", name: "#people", count: 4 },
+    { id: "travel", name: "#travel", count: 4 },
+    { id: "history", name: "#history", count: 3 },
+    { id: "health", name: "#health", count: 3 }
+  ];
+  const NOTE_COLORS = ["#70b7d8", "#8e9ee8", "#b98ada", "#dc8f9c", "#ddb064", "#7ec49b"];
+  const notePositions = [
+    [360,155],[455,115],[555,145],[665,120],[770,170],[875,145],
+    [330,275],[430,245],[540,265],[650,235],[760,285],[885,260],
+    [350,405],[455,360],[570,395],[675,360],[790,410],[900,380],
+    [410,525],[525,500],[640,535],[755,505],[850,535],[965,470]
+  ];
+  const tagPositions = [[325,85],[470,70],[610,82],[750,70],[900,90],[980,190],[970,315],[975,440],[895,580],[735,595],[560,585],[380,590]];
+  const noteTags = [
+    ["ai","research"],["ai","tools"],["design","product"],["writing","ideas"],["books","history"],["travel","people"],
+    ["ai","product"],["design","ideas"],["research","books"],["writing","product"],["tools","health"],["travel","history"],
+    ["ai","writing"],["design","research"],["books","ideas"],["product","people"],["tools","travel"],["health","people"],
+    ["ai","design"],["research","history"],["writing","books"],["product","tools"],["ideas","travel"],["health","people"]
+  ];
+  const params = new URLSearchParams(window.location.search);
+  const requestedTag = params.get("tag");
+  const state = {
+    showTags: params.has("tags") || requestedTag !== null,
+    activeTag: TAGS.some((tag) => tag.id === requestedTag) ? requestedTag : null,
+    colorByTag: params.has("colors"),
+    showTagHubs: params.has("hubs"),
+    tagHubLimit: Math.min(50, Math.max(5, Number(params.get("limit")) || 20)),
+    light: params.get("theme") === "light"
+  };
+  const graph = document.getElementById("graph");
+  const chips = document.getElementById("tagChips");
+  const tagToggle = document.getElementById("tagToggle");
+  const tagOptions = document.getElementById("tagOptions");
+  const tagColors = document.getElementById("tagColors");
+  const tagHubs = document.getElementById("tagHubs");
+  const hubSliderRow = document.getElementById("hubSliderRow");
+  const hubSlider = document.getElementById("hubSlider");
+  const tagReset = document.getElementById("tagReset");
+  const themeButton = document.getElementById("themeButton");
+  const tagsSection = document.getElementById("tagsSection");
+
+  document.body.classList.toggle("is-light", state.light);
+  tagsSection.open = state.showTags;
+  themeButton.textContent = state.light ? "☾" : "☼";
+  themeButton.title = state.light ? "Dark theme" : "Light theme";
+  themeButton.setAttribute("aria-label", themeButton.title);
+  hubSlider.value = String(state.tagHubLimit);
+
+  const svg = (name, attrs) => {
+    const el = document.createElementNS(NS, name);
+    Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, String(value)));
+    return el;
+  };
+
+  const edgeGroup = svg("g", {});
+  const tagEdgeGroup = svg("g", {});
+  const nodeGroup = svg("g", {});
+  graph.append(edgeGroup, tagEdgeGroup, nodeGroup);
+
+  for (let i = 0; i < notePositions.length; i += 1) {
+    const [x1, y1] = notePositions[i];
+    const [x2, y2] = notePositions[(i + 1) % notePositions.length];
+    const edge = svg("line", { x1, y1, x2, y2, class: "edge", "data-note-a": i, "data-note-b": (i + 1) % notePositions.length });
+    edgeGroup.append(edge);
+    if (i % 3 === 0) {
+      const [x3, y3] = notePositions[(i + 6) % notePositions.length];
+      edgeGroup.append(svg("line", { x1, y1, x2: x3, y2: y3, class: "edge", "data-note-a": i, "data-note-b": (i + 6) % notePositions.length }));
+    }
+  }
+
+  TAGS.forEach((tag, tagIndex) => {
+    const [tx, ty] = tagPositions[tagIndex];
+    noteTags.forEach((ids, noteIndex) => {
+      if (!ids.includes(tag.id)) return;
+      const [nx, ny] = notePositions[noteIndex];
+      tagEdgeGroup.append(svg("line", {
+        x1: tx, y1: ty, x2: nx, y2: ny,
+        class: "edge is-tag-edge",
+        "data-tag": tag.id,
+        "data-note": noteIndex
+      }));
+    });
+  });
+
+  notePositions.forEach(([cx, cy], index) => {
+    nodeGroup.append(svg("circle", {
+      cx, cy, r: 4.2 + (index % 4) * 0.75,
+      fill: NOTE_COLORS[index % NOTE_COLORS.length],
+      class: "node",
+      "data-note": index
+    }));
+  });
+
+  TAGS.forEach((tag, index) => {
+    const [cx, cy] = tagPositions[index];
+    nodeGroup.append(svg("circle", { cx, cy, r: 13, class: "tag-halo", "data-tag": tag.id }));
+    nodeGroup.append(svg("circle", { cx, cy, r: 5.2, fill: "#91a7ff", class: "node is-tag is-hidden", "data-tag": tag.id }));
+    const label = svg("text", { x: cx + 9, y: cy + 3, class: "node-label", "data-tag": tag.id });
+    label.textContent = tag.name;
+    nodeGroup.append(label);
+  });
+
+  TAGS.forEach((tag) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "gx-tag-chip";
+    chip.dataset.tag = tag.id;
+    chip.setAttribute("aria-pressed", "false");
+    const name = document.createElement("span");
+    name.className = "gx-tag-name";
+    name.textContent = tag.name;
+    const count = document.createElement("span");
+    count.className = "gx-tag-count";
+    count.textContent = String(tag.count);
+    chip.append(name, count);
+    chip.addEventListener("click", () => {
+      state.activeTag = state.activeTag === tag.id ? null : tag.id;
+      render();
+    });
+    chips.append(chip);
+  });
+
+  const hasTag = (noteIndex, tagId) => noteTags[noteIndex].includes(tagId);
+  const tagColor = (tagId) => ({
+    ai: "#70b7d8", product: "#8e9ee8", design: "#b98ada", research: "#dc8f9c",
+    writing: "#ddb064", books: "#7ec49b", ideas: "#61a7d1", tools: "#8d92df",
+    people: "#b384ce", travel: "#d18491", history: "#cc9e54", health: "#70b28c"
+  })[tagId] || "#91a7ff";
+
+  function render() {
+    tagToggle.textContent = state.showTags ? "Tags: shown" : "Tags: hidden";
+    tagToggle.setAttribute("aria-pressed", String(state.showTags));
+    tagColors.textContent = state.colorByTag ? "Tag colors: on" : "Tag colors: off";
+    tagColors.setAttribute("aria-pressed", String(state.colorByTag));
+    tagHubs.textContent = state.showTagHubs ? "Tag hubs: on" : "Tag hubs: off";
+    tagHubs.setAttribute("aria-pressed", String(state.showTagHubs));
+    tagOptions.classList.toggle("is-hidden", !state.showTags);
+    hubSliderRow.classList.toggle("is-hidden", !state.showTags || !state.showTagHubs);
+    chips.classList.toggle("is-hidden", !state.showTags);
+
+    chips.querySelectorAll("button").forEach((chip) => {
+      const active = state.activeTag === chip.dataset.tag;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", String(active));
+    });
+
+    graph.querySelectorAll(".node[data-note]").forEach((node) => {
+      const active = state.activeTag === null || hasTag(Number(node.dataset.note), state.activeTag);
+      node.setAttribute("fill", state.showTags && state.colorByTag ? tagColor(noteTags[Number(node.dataset.note)][0]) : NOTE_COLORS[Number(node.dataset.note) % NOTE_COLORS.length]);
+      node.classList.toggle("is-active", state.activeTag !== null && active);
+      node.classList.toggle("is-dim", state.activeTag !== null && !active);
+    });
+
+    graph.querySelectorAll(".node[data-tag]").forEach((node) => {
+      const active = state.activeTag === node.dataset.tag;
+      const visibleHub = state.showTags && state.showTagHubs && TAGS.findIndex((tag) => tag.id === node.dataset.tag) < state.tagHubLimit;
+      node.classList.toggle("is-hidden", !visibleHub);
+      node.classList.toggle("is-active", active);
+      node.classList.toggle("is-dim", visibleHub && state.activeTag !== null && !active);
+      node.setAttribute("fill", state.colorByTag ? tagColor(node.dataset.tag) : "#91a7ff");
+    });
+    graph.querySelectorAll(".tag-halo, .node-label").forEach((el) => {
+      const visibleHub = state.showTags && state.showTagHubs && TAGS.findIndex((tag) => tag.id === el.dataset.tag) < state.tagHubLimit;
+      el.classList.toggle("is-active", visibleHub && state.activeTag === el.dataset.tag);
+    });
+
+    graph.querySelectorAll(".is-tag-edge").forEach((edge) => {
+      const visibleHub = state.showTags && state.showTagHubs && TAGS.findIndex((tag) => tag.id === edge.dataset.tag) < state.tagHubLimit;
+      const active = visibleHub && state.activeTag === edge.dataset.tag;
+      edge.classList.toggle("is-active", active);
+      edge.classList.toggle("is-dim", visibleHub && state.activeTag !== null && !active);
+      edge.style.opacity = !visibleHub ? "0" : (state.activeTag === null ? "0.14" : "");
+    });
+    graph.querySelectorAll(".edge:not(.is-tag-edge)").forEach((edge) => {
+      const a = Number(edge.dataset.noteA);
+      const b = Number(edge.dataset.noteB);
+      const active = state.activeTag !== null && hasTag(a, state.activeTag) && hasTag(b, state.activeTag);
+      edge.classList.toggle("is-active", active);
+      edge.classList.toggle("is-dim", state.activeTag !== null && !active);
+    });
+  }
+
+  tagToggle.addEventListener("click", () => {
+    state.showTags = !state.showTags;
+    if (!state.showTags) state.activeTag = null;
+    render();
+  });
+
+  tagColors.addEventListener("click", () => {
+    state.colorByTag = !state.colorByTag;
+    render();
+  });
+
+  tagHubs.addEventListener("click", () => {
+    state.showTagHubs = !state.showTagHubs;
+    render();
+  });
+
+  hubSlider.addEventListener("input", () => {
+    state.tagHubLimit = Number(hubSlider.value);
+    render();
+  });
+
+  tagReset.addEventListener("click", () => {
+    state.activeTag = null;
+    state.colorByTag = false;
+    state.showTagHubs = false;
+    state.tagHubLimit = 20;
+    hubSlider.value = "20";
+    render();
+  });
+
+  themeButton.addEventListener("click", () => {
+    state.light = !state.light;
+    document.body.classList.toggle("is-light", state.light);
+    themeButton.textContent = state.light ? "☾" : "☼";
+    themeButton.title = state.light ? "Dark theme" : "Light theme";
+    themeButton.setAttribute("aria-label", themeButton.title);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

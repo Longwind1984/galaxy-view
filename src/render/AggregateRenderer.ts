@@ -32,7 +32,7 @@ import { fillLinkPositions, segsFor } from './linkCurves';
 import { fitGraphPositions, GRAPH_FIT_RADIUS_FACTOR } from './graphTransform';
 import { ClusterClouds, NebulaDome } from './nebula';
 import type { VisualTokens } from './presets';
-import type { QualityTier } from '../quality/tiers';
+import { effectivePixelRatio, type QualityTier } from '../quality/tiers';
 import { DEEP_SPACE } from './presets';
 
 const FOCUS_FADE_S = 0.28;
@@ -723,7 +723,9 @@ export class AggregateRenderer {
 	/** 质量档位（M4）：pixelRatio / bloom 门控 / 星空密度 / 曲线段数 / 背景层预算 */
 	applyTier(tier: QualityTier, bloomStrengthFromSettings: number): void {
 		this.tierBloomAllowed = tier.bloomAllowed;
-		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, tier.pixelRatioCap));
+		const pixelRatio = effectivePixelRatio(window.devicePixelRatio, tier.pixelRatioCap);
+		this.renderer.setPixelRatio(pixelRatio);
+		this.composer.setPixelRatio(pixelRatio);
 		this.bloomPass.enabled = this.tokens.bloomEnabled && this.tierBloomAllowed && bloomStrengthFromSettings > 0.001;
 		// 星空按档位密度重建（一次性，毫秒级）
 		const visible = this.starfield.visible;

@@ -2,6 +2,7 @@ import { Color } from 'three';
 import { hash32 } from '../data/seed';
 import type { GraphNode } from '../types';
 import type { ColorGroup } from '../settings/graphJsonImport';
+import { primaryTag } from '../data/tagLens';
 
 export type NodeColorFn = (node: GraphNode) => Color;
 
@@ -27,6 +28,26 @@ export function makeNodeColorFn(groups: ColorGroup[]): NodeColorFn {
 
 export const fallbackColorFn: NodeColorFn = (node) =>
 	node.tag ? TAG : folderColor(node.folderTop, node.unresolved);
+
+const tagColorCache = new Map<string, Color>();
+
+/**
+ * 标签颜色只覆盖有主标签的笔记与 hub；无标签/未解析节点回落既有文件夹或导入配色。
+ * hash 直接映射 360 色相，新增标签不会让已有标签因排名改变颜色。
+ */
+export function makeTagColorFn(base: NodeColorFn): NodeColorFn {
+	return (node) => {
+		if (node.unresolved) return base(node);
+		const tag = primaryTag(node);
+		if (!tag) return base(node);
+		let color = tagColorCache.get(tag);
+		if (!color) {
+			color = new Color().setHSL((hash32(tag) % 360) / 360, 0.68, 0.6);
+			tagColorCache.set(tag, color);
+		}
+		return color;
+	};
+}
 
 // Obsidian 标准色族 hsl(h, 60%, 60%) 的色相轮（与 Rick 的 9 组配色同族）；
 // 有 colorGroups 时那套优先，本表是无配置文件夹的回退

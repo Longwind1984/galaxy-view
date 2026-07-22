@@ -14,7 +14,7 @@ import type { LayoutEngine } from '../layout/LayoutEngine';
 import { MainThreadForceLayout } from '../layout/MainThreadForceLayout';
 import { WorkerForceLayout } from '../layout/WorkerForceLayout';
 import { AggregateRenderer } from '../render/AggregateRenderer';
-import { makeNodeColorFn, fallbackColorFn, assignFolderHues, folderCoveredByGroups, type NodeColorFn } from '../render/palette';
+import { makeNodeColorFn, makeTagColorFn, fallbackColorFn, assignFolderHues, folderCoveredByGroups, type NodeColorFn } from '../render/palette';
 import { DAYLIGHT, DEEP_SPACE } from '../render/presets';
 import { CameraDirector } from '../interactions/CameraDirector';
 import { TourDirector } from '../tour/TourDirector';
@@ -28,6 +28,12 @@ import type { LangPref } from '../i18n';
 import { collectFrames, observeLongTasks, writeBenchResult, sleep } from '../bench/bench';
 import type { QualityTier } from '../quality/tiers';
 import { TIERS } from '../quality/tiers';
+import { elapsedFrameSeconds, frameDeltaSeconds, progress01, safeFrameSeconds } from '../timing/frameClock';
+import { WindowFrameLoop } from '../timing/windowFrameLoop';
+import { WindowVisibilityBinding } from '../timing/windowVisibility';
+import { selectGraphFiles } from '../data/graphFiles';
+import { resolveTagLens, toggleTagLens as nextTagLens, topTags } from '../data/tagLens';
+import type { TopTag } from '../data/tagLens';
 
 const WARM_CACHE_MIN_COVERAGE = 0.8;
 const ESTABLISHING_MS = 3200;
@@ -47,28 +53,29 @@ export class GraphController {
 	private panel: ControlPanel | null = null;
 	private tour: TourDirector | null = null;
 
-	private rafId = 0;
-	private lastNow = 0;
+	private frameLoop: WindowFrameLoop | null = null;
 	private paused = false;
-	private visible = true;
 	private benchMode = false;
 	private benchRunning = false;
 	private selected = -1;
+	/** 数据重建时算一次；chip 点击只读这份 top 12，避免 Lens 激活时重复排序全部标签。 */
+	private topTagList: TopTag[] = [];
 	private graphRadius = 200;
 	private wasSettled = false;
-	private shot: { t0: number; durMs: number; fromBloom: number } | null = null;
+	private shot: { elapsedMs: number; durMs: number; fromBloom: number } | null = null;
 	private maskEl: HTMLElement | null = null;
 
 	private hudFrames: number[] = [];
-	private intersection: IntersectionObserver | null = null;
 	private boundWin: Window | null = null; // 视图当前所在窗口（可能被移动到弹出窗口，见 issue #4）
-	private onVisChange: (() => void) | null = null;
+	private visibilityBinding: WindowVisibilityBinding | null = null;
 	private disposeFns: (() => void)[] = [];
 	private saveSoon: () => void;
 	/** 结构性操作（存/删/移/改名预设）立即写盘，绕开 800ms 防抖——避免存完立刻退出丢失 */
 	private saveNow: () => void;
 	/** 过滤查询防抖（#11）：每次生效都要重建图 + 重热布局，逐键触发会把大库打死 */
 	private filterSoon: (q: string) => void;
+	/** hub 数量滑杆会连续发 input；只在停手后做一次 O(N+tags) 图重建。 */
+	private tagHubsSoon: (() => void) & { cancel(): void };
 	/** 当前生效的节点调色函数；面板图例要用它取真实颜色，故在此留一份而不只丢给 renderer */
 	private colorFn: NodeColorFn = fallbackColorFn;
 	private tier: QualityTier = TIERS.high;
@@ -76,6 +83,7 @@ export class GraphController {
 	private lowFpsChecks = 0;
 	private highFpsChecks = 0;
 	private lastWatchdogAt = 0;
+	private disposed = false;
 	/** WebGL 上下文丢失时由视图重建（GalaxyView 注入） */
 	onContextLost: (() => void) | null = null;
 
@@ -90,6 +98,11 @@ export class GraphController {
 		this.saveSoon = debounce(saveSettings, 800, true);
 		// 300ms：短到打完就出结果，长到连打不会每键重建（3.2k 笔记的库上一次重建+重热是几十 ms 起）
 		this.filterSoon = debounce((q: string) => this.store.setFilterQuery(q), 300, false);
+		this.tagHubsSoon = debounce(
+			() => this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit),
+			180,
+			false,
+		);
 	}
 
 	get counts(): { nodes: number; links: number } {
@@ -97,14 +110,17 @@ export class GraphController {
 	}
 
 	async start(): Promise<void> {
-		await this.store.ensureCacheReady();
 		this.store.init(
 			this.settings.showUnresolved,
 			this.settings.showOrphans,
 			this.settings.showTags,
+			this.settings.showTagHubs,
+			this.settings.tagHubLimit,
 			{ hiddenFolders: this.settings.hiddenFolders, query: this.settings.filterQuery },
 			() => this.onDataChanged(),
 		);
+		await this.store.ensureCacheReady();
+		if (this.disposed) return;
 		this.store.rebuild(false);
 
 		// 暖启动：用上次沉降坐标覆盖种子 → 重开即成形
@@ -142,7 +158,7 @@ export class GraphController {
 
 		this.tour = new TourDirector({
 			nodeCount: () => this.store.data.nodes.length,
-			degreeOf: (i) => this.store.data.nodes[i]?.degree ?? 0,
+			degreeOf: (i) => (this.store.data.nodes[i]?.tag ? 0 : (this.store.data.nodes[i]?.degree ?? 0)),
 			nodePosition: (i, out) => renderer.nodePosition(i, out),
 			graphRadius: () => this.graphRadius,
 			selectNode: (i, fly) => this.selectNode(i, fly),
@@ -161,6 +177,7 @@ export class GraphController {
 		this.applyPreset();
 		this.applyTier();
 		this.buildPanel();
+		this.applyTagLens();
 		this.bindPicking(renderer.renderer.domElement);
 		this.bindContextLost(renderer.renderer.domElement);
 		this.bindVisibility();
@@ -176,10 +193,12 @@ export class GraphController {
 			this.director.setInitialFraming(f.center, f.radius);
 		}
 
-		this.lastNow = performance.now();
-		const loop = (now: number) => {
-			const deltaS = Math.min((now - this.lastNow) / 1000, 0.1);
-			this.lastNow = now;
+		const loop = (now: number, previousNow: number | null) => {
+			if (this.disposed) return;
+			// 不同 Electron 窗口的 rAF timestamp 不保证同一 timeOrigin。窗口切换首帧取 0，
+			// 动画使用不截短的安全 elapsed 保持真实时长；模拟/渲染仍限制长帧避免跳跃（#14）。
+			const animationDeltaS = elapsedFrameSeconds(now, previousNow);
+			const deltaS = frameDeltaSeconds(now, previousNow);
 			if (!this.paused) {
 				if (this.layout.step()) this.renderer?.updatePositions();
 				this.checkSettled();
@@ -187,25 +206,24 @@ export class GraphController {
 					// tick + 相机 update 一起兜底：任一抛错都不能让异常冒泡冻结整个 rAF 循环
 					// （曾因 flyby 的 CatmullRom 采样在 director.update 里抛错，整个视图卡死 = 「点了没反应」）
 					try {
-						this.tour?.tick(now); // 巡游先编排本帧运动，再由 director 执行；随 paused 冻结
-						this.director?.update(now, deltaS);
+						this.tour?.tick(animationDeltaS); // 巡游先编排本帧运动，再由 director 执行；随 paused 冻结
+						this.director?.update(now, animationDeltaS, deltaS);
 					} catch (err) {
 						this.tour?.abort();
 						this.director?.cancelMotion(); // 清掉可能损坏的路径/补间，避免下一帧继续抛
 						new Notice(t('notice.tourError', { msg: err instanceof Error ? err.message : String(err) }));
 					}
 				}
-				this.stepShot(now);
+				this.stepShot(animationDeltaS);
 				this.renderer?.render(deltaS);
 				const { clientWidth: w, clientHeight: h } = this.contentEl;
 				this.overlay?.update(w, h);
 			}
 			this.updateHud(now);
 			this.watchdog(now);
-			// 用视图所在窗口的 rAF：视图在弹出窗口且主窗口被切后台时，主窗口 rAF 会被节流/暂停（issue #4）
-			this.rafId = (this.boundWin ?? window).requestAnimationFrame(loop);
 		};
-		this.rafId = window.requestAnimationFrame(loop);
+		this.frameLoop = new WindowFrameLoop(loop);
+		this.frameLoop.setOwner(this.boundWin ?? this.contentEl.ownerDocument.defaultView ?? window);
 	}
 
 	/** Electron GPU 重置 → 遮罩 + 一键重建（前人插件的隐性死因之一） */
@@ -287,14 +305,15 @@ export class GraphController {
 			director.target.copy(f.center);
 			director.resetView(f.center, f.radius, () => director.beginFocusOrbit(null)); // 内部 → 总览 → 即时巡航
 			renderer.playReveal(2600); // 创世动画：节点从中心波次绽放（G2.5 反馈）
-			this.shot = { t0: performance.now(), durMs: ESTABLISHING_MS, fromBloom: this.settings.bloom.strength * 1.8 };
+			this.shot = { elapsedMs: 0, durMs: ESTABLISHING_MS, fromBloom: this.settings.bloom.strength * 1.8 };
 		}, 450);
 	}
 
 	/** 开场期间辉光从 1.8× 回落到设置值（NASA「明亮诞生」） */
-	private stepShot(now: number): void {
+	private stepShot(deltaS: number): void {
 		if (!this.shot || !this.renderer) return;
-		const t = Math.min((now - this.shot.t0) / this.shot.durMs, 1);
+		this.shot.elapsedMs += safeFrameSeconds(deltaS) * 1000;
+		const t = progress01(this.shot.elapsedMs, this.shot.durMs);
 		const v = this.shot.fromBloom + (this.settings.bloom.strength - this.shot.fromBloom) * t;
 		this.renderer.setBloomStrength(v);
 		if (t >= 1) this.shot = null;
@@ -313,7 +332,8 @@ export class GraphController {
 			this.store.folders.map((f) => f.folder),
 			(folder) => folderCoveredByGroups(folder, groups),
 		);
-		this.colorFn = fn ?? (groups.length > 0 ? makeNodeColorFn(groups) : fallbackColorFn);
+		const base = fn ?? (groups.length > 0 ? makeNodeColorFn(groups) : fallbackColorFn);
+		this.colorFn = this.settings.showTags && this.settings.colorByTag ? makeTagColorFn(base) : base;
 		this.renderer?.setColorFn(this.colorFn);
 		this.panel?.refreshFolders(); // 色相可能重发了，图例的点要跟着变
 	}
@@ -330,6 +350,7 @@ export class GraphController {
 			inDegree: 0,
 			outDegree: 0,
 			fileSize: 0,
+			tags: [],
 			unresolved: false,
 			tag: false,
 		};
@@ -337,13 +358,20 @@ export class GraphController {
 	}
 
 	private onDataChanged(): void {
+		this.topTagList = topTags(this.store.data, 12, this.settings.tagLens);
 		if (!this.renderer) return;
 		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
-		this.clearSelection();
+		// 先清旧索引对应的选择层；新数据落下后再按持久化 tag id 重建 Lens。
+		this.selected = -1;
+		this.renderer.setFocus(null);
+		this.renderer.setSelectedLinks([], []);
+		this.overlay?.setSelection(-1, new Set());
 		this.applyColorFn(); // 文件夹集合可能变了 → 重发色相 + 刷图例
 		this.renderer.setData(this.store.data, this.store.positions);
 		this.renderer.setGhostLinks(this.settings.showGhostEdges ? this.store.ghostLinks : []);
 		this.overlay?.setData(this.store.data, this.graphRadius);
+		this.applyTagLens();
+		this.panel?.refreshTags();
 		// 过滤到空图时给一句——整个 3D 视图空掉会像崩了，这个不是「一试就懂」的
 		this.panel?.setFilterEmpty(this.store.isFiltered() && this.store.data.nodes.length === 0);
 		// 身份保持合并已保住旧坐标，低温重热让新节点滑入而不是全图爆炸
@@ -382,7 +410,7 @@ export class GraphController {
 		this.renderer?.applyTier(this.tier, this.settings.bloom.strength);
 		this.overlay?.setBudgets(this.tier.hubLabels, this.tier.neighborLabels, this.tier.id === 'mobile');
 		this.contentEl.toggleClass('gx-mobile', this.tier.id === 'mobile');
-		const total = this.app.vault.getMarkdownFiles().length;
+		const total = selectGraphFiles(this.app.vault.getFiles()).length;
 		this.store.setCaps(this.tier.nodeCap, this.tier.linkCap); // 变化时触发重建
 		if (this.tier.nodeCap !== null && total > this.tier.nodeCap && prev !== this.tier.id) {
 			new Notice(t('notice.mobileCap', { n: this.tier.nodeCap, total }));
@@ -738,9 +766,34 @@ export class GraphController {
 
 	clearSelection(): void {
 		this.selected = -1;
-		this.renderer?.setFocus(null);
-		this.renderer?.setSelectedLinks([], []);
 		this.overlay?.setSelection(-1, new Set());
+		this.applyTagLens();
+	}
+
+	/** Tag Lens 不建立第二套标签数据：直接读取笔记 tags；可选 hub 只补充视觉节点与边。 */
+	private applyTagLens(): void {
+		const resolved = resolveTagLens(this.store.data, this.store.adjacency, this.settings.showTags, this.settings.tagLens);
+		if (this.settings.tagLens !== resolved.id) {
+			// 关闭标签或过滤/重建后标签消失：持久化状态也必须同步清掉。
+			this.settings.tagLens = resolved.id;
+			this.saveSoon();
+		}
+		this.panel?.refreshTags();
+		if (this.selected >= 0) return; // 普通节点选择临时覆盖 Lens；清选择时会再次调用本方法。
+		if (!resolved.focus) {
+			this.renderer?.setFocus(null);
+			this.renderer?.setSelectedLinks([], []);
+			return;
+		}
+		this.renderer?.setFocus((index) => (resolved.focus?.nodeIndices.has(index) ? SELECT_DIM.self : SELECT_DIM.rest));
+		this.renderer?.setSelectedLinks(resolved.focus.linkIndices, []);
+	}
+
+	private toggleTagLens(tagId: string): void {
+		if (!this.settings.showTags) return;
+		this.settings.tagLens = nextTagLens(this.settings.tagLens, tagId);
+		this.applyTagLens();
+		this.saveSoon();
 	}
 
 	// ---------- 巡游 / 自动驾驶（v0.3；方向 C = 漫游 + 连接两篇） ----------
@@ -865,6 +918,9 @@ export class GraphController {
 	// ---------- 可见性暂停 ----------
 
 	private bindVisibility(): void {
+		this.visibilityBinding = new WindowVisibilityBinding(this.contentEl, (paused) => {
+			this.paused = paused;
+		});
 		this.rebindVisibility();
 	}
 
@@ -877,20 +933,16 @@ export class GraphController {
 	private rebindVisibility(): void {
 		const doc = this.contentEl.ownerDocument;
 		const win = doc.defaultView ?? window;
-		this.intersection?.disconnect();
-		if (this.onVisChange && this.boundWin) this.boundWin.document.removeEventListener('visibilitychange', this.onVisChange);
+		if (this.boundWin !== win) {
+			this.hudFrames = [];
+			this.lastWatchdogAt = 0;
+			this.lowFpsChecks = 0;
+			this.highFpsChecks = 0;
+		}
 		this.boundWin = win;
-		const onVis = () => {
-			this.paused = doc.hidden || !this.visible;
-		};
-		this.onVisChange = onVis;
-		doc.addEventListener('visibilitychange', onVis);
-		this.intersection = new win.IntersectionObserver((entries) => {
-			this.visible = entries[0]?.isIntersecting ?? true;
-			onVis();
-		});
-		this.intersection.observe(this.contentEl);
-		onVis(); // 立即同步一次
+		this.visibilityBinding?.bind(win, doc);
+		// rAF ID 只能由创建它的 Window 取消；换窗时立即交接，不等旧窗口再跑一帧。
+		this.frameLoop?.setOwner(win);
 	}
 
 	// ---------- 控制面板 ----------
@@ -946,9 +998,27 @@ export class GraphController {
 				this.saveSoon();
 			},
 			onShowTags: (on) => {
+				if (!on) this.settings.tagLens = null;
 				this.store.setIncludeTags(on);
 				this.saveSoon();
 			},
+			onTagLens: (tagId) => this.toggleTagLens(tagId),
+			getTopTags: () => this.topTagList,
+			onTagColorMode: () => {
+				this.applyColorFn();
+				this.renderer?.recolor();
+				this.saveSoon();
+			},
+			onTagHubs: () => {
+				this.tagHubsSoon.cancel();
+				this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
+				this.saveSoon();
+			},
+			onTagHubLimit: () => {
+				this.tagHubsSoon();
+				this.saveSoon();
+			},
+			onResetTags: () => this.resetTags(),
 			onHiddenFolders: (hidden) => {
 				this.store.setHiddenFolders(hidden); // 点一下就重建，不防抖
 				this.saveSoon();
@@ -1003,6 +1073,21 @@ export class GraphController {
 		});
 	}
 
+	/** 只复位标签可视化，不碰预设、文件夹配色、过滤或导航。 */
+	private resetTags(): void {
+		this.settings.tagLens = null;
+		this.settings.colorByTag = DEFAULT_SETTINGS.colorByTag;
+		this.settings.showTagHubs = DEFAULT_SETTINGS.showTagHubs;
+		this.settings.tagHubLimit = DEFAULT_SETTINGS.tagHubLimit;
+		this.tagHubsSoon.cancel();
+		this.applyColorFn();
+		this.renderer?.recolor();
+		this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
+		this.clearSelection();
+		this.panel?.refreshAll();
+		this.saveSoon();
+	}
+
 	/** 语言切换后：销毁旧面板、按当前语言重建 */
 	rebuildPanel(): void {
 		this.panel?.dispose();
@@ -1029,8 +1114,12 @@ export class GraphController {
 		this.applyTier(); // 内部按 qualityOverride 重选档 + store.setCaps
 		this.store.setIncludeOrphans(this.settings.showOrphans);
 		this.store.setIncludeUnresolved(this.settings.showUnresolved);
+		this.store.setTagHubs(this.settings.showTagHubs, this.settings.tagHubLimit);
 		this.store.setIncludeTags(this.settings.showTags);
 		this.store.setShowGhostEdges(this.settings.showGhostEdges);
+		this.applyColorFn();
+		this.renderer?.recolor();
+		this.applyTagLens();
 		this.panel?.refreshAll();
 	}
 
@@ -1147,11 +1236,14 @@ export class GraphController {
 	// ---------- 销毁合同 ----------
 
 	dispose(): void {
-		(this.boundWin ?? window).cancelAnimationFrame(this.rafId);
-		this.intersection?.disconnect();
-		this.intersection = null;
-		if (this.onVisChange && this.boundWin) this.boundWin.document.removeEventListener('visibilitychange', this.onVisChange);
-		this.onVisChange = null;
+		if (this.disposed) return;
+		this.disposed = true;
+		this.tagHubsSoon.cancel();
+		this.store.unload();
+		this.frameLoop?.dispose();
+		this.frameLoop = null;
+		this.visibilityBinding?.dispose();
+		this.visibilityBinding = null;
 		this.boundWin = null;
 		for (const fn of this.disposeFns) fn();
 		this.disposeFns = [];

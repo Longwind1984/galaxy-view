@@ -6,8 +6,10 @@ export interface GraphNode {
 	inDegree: number;
 	outDegree: number;
 	fileSize: number; // 字节；未解析/标签为 0（「质量」可选依据）
+	/** 笔记的 metadata 标签；标签 hub 自身只含它代表的一个标签。 */
+	tags: string[];
 	unresolved: boolean;
-	tag: boolean; // true=标签合成节点（非文件），与 unresolved 并列的判别位
+	tag: boolean; // true=有界标签 hub（非文件），与 unresolved 并列的判别位
 }
 
 /** 边用节点数组下标表示——聚合渲染按索引 gather 坐标 */

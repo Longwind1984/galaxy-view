@@ -3,6 +3,7 @@ import { TFile, getAllTags } from 'obsidian';
 import type { GraphData, GraphNode } from '../types';
 import type { AggregateRenderer } from '../render/AggregateRenderer';
 import { getLang, t } from '../i18n';
+import { isMarkdownFile } from '../data/graphFiles';
 
 
 
@@ -164,9 +165,10 @@ export class OverlayManager {
 
 		const file = node.unresolved || node.tag ? null : this.app.vault.getAbstractFileByPath(node.id);
 		const tfile = file instanceof TFile ? file : null;
+		const markdownFile = tfile && isMarkdownFile(tfile) ? tfile : null;
 
-		if (tfile) {
-			const cache = this.app.metadataCache.getFileCache(tfile);
+		if (markdownFile) {
+			const cache = this.app.metadataCache.getFileCache(markdownFile);
 			const tags = cache ? (getAllTags(cache) ?? []) : [];
 			if (tags.length > 0) {
 				const tagRow = body.createDiv({ cls: 'gx-card-tags' });
@@ -182,10 +184,10 @@ export class OverlayManager {
 		// 标签节点：显示「N 篇笔记」（= 带此 tag 的笔记数）而非反链/出链
 		stats.setText(node.tag ? t('card.tagNotes', { n: node.degree }) : t('card.stats', { in: node.inDegree, out: node.outDegree }) + mdate);
 
-		if (tfile) {
+		if (markdownFile) {
 			const snippetEl = body.createDiv({ cls: 'gx-card-snippet', text: '…' });
 			const token = ++this.snippetToken;
-			void this.app.vault.cachedRead(tfile).then((text) => {
+			void this.app.vault.cachedRead(markdownFile).then((text) => {
 				if (token !== this.snippetToken) return; // 已切换选中，丢弃过期结果
 				snippetEl.setText(stripMarkdown(text).slice(0, 120) || t('card.empty'));
 			});

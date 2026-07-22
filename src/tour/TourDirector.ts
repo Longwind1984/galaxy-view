@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import type { FlyPathOptions } from '../interactions/CameraDirector';
+import { safeFrameSeconds } from '../timing/frameClock';
 
 /** GraphController 注入的动词——TourDirector 不碰 WebGL，只调用这些 */
 export interface TourHooks {
@@ -23,7 +24,7 @@ type TourKind = 'wander' | 'guided';
 const WANDER_FLYBY_EVERY = 4;
 
 /**
- * 巡游状态机（v0.3 方向 C 重构）。tick(now) 由 GraphController 的 rAF（paused 守卫内）驱动，
+ * 巡游状态机（v0.3 方向 C 重构）。tick(deltaS) 由 GraphController 的 rAF（paused 守卫内）驱动，
  * 隐藏视图自然冻结、恢复无缝。两种意图：
  * - **漫游 wander**：单一自动导演，把「回顾/飞掠/大巡游」合三为一——主要是逐个飞向加权节点
  *   （度数×久未见，枢纽自然被光顾）并环绕弹卡，每 WANDER_FLYBY_EVERY 拍插一段样条飞掠添变化。
@@ -33,7 +34,7 @@ export class TourDirector {
 	private running = false;
 	private kind: TourKind = 'wander';
 	private speed = 1;
-	private dwellUntil = 0;
+	private dwellRemainingMs = 0;
 	private beat = 0;
 	private visited = new Set<number>();
 	private queue: number[] = []; // guided=最短路径
@@ -54,7 +55,7 @@ export class TourDirector {
 		this.running = true;
 		this.visited.clear();
 		this.beat = 0;
-		this.dwellUntil = 0; // 下一 tick 立即起第一拍
+		this.dwellRemainingMs = 0; // 下一 tick 立即起第一拍
 		this.hooks.onStateChange?.(true);
 	}
 
@@ -66,7 +67,7 @@ export class TourDirector {
 		this.running = true;
 		this.queue = path.slice();
 		this.queueIdx = 0;
-		this.dwellUntil = 0;
+		this.dwellRemainingMs = 0;
 		this.hooks.onStateChange?.(true);
 	}
 
@@ -90,20 +91,22 @@ export class TourDirector {
 		this.speed = Math.max(0.2, v);
 	}
 
-	tick(now: number): void {
+	tick(deltaS: number): void {
 		if (!this.running) return;
+		const frameMs = safeFrameSeconds(deltaS) * 1000;
 		if (this.kind === 'guided') {
-			this.tickGuided(now);
+			this.tickGuided(frameMs);
 			return;
 		}
-		this.tickWander(now);
+		this.tickWander(frameMs);
 	}
 
 	// ---------- 漫游 ----------
 
-	private tickWander(now: number): void {
+	private tickWander(frameMs: number): void {
 		if (this.hooks.onPath()) return; // 飞掠段进行中
-		if (now < this.dwellUntil) return; // 正在环绕当前节点
+		this.dwellRemainingMs = Math.max(this.dwellRemainingMs - frameMs, 0);
+		if (this.dwellRemainingMs > 0) return; // 正在环绕当前节点
 		this.beat++;
 		if (this.beat % WANDER_FLYBY_EVERY === 0) {
 			this.startFlybyLeg(); // 电影感飞掠一段；onPath 门控到它结束
@@ -112,20 +115,21 @@ export class TourDirector {
 		const next = this.pickRediscover();
 		if (next < 0) return;
 		this.hooks.selectNode(next, true);
-		this.dwellUntil = now + Math.max(2600, 5000 / this.speed);
+		this.dwellRemainingMs = Math.max(2600, 5000 / this.speed);
 	}
 
 	// ---------- 连接两篇 ----------
 
-	private tickGuided(now: number): void {
-		if (now < this.dwellUntil) return;
+	private tickGuided(frameMs: number): void {
+		this.dwellRemainingMs = Math.max(this.dwellRemainingMs - frameMs, 0);
+		if (this.dwellRemainingMs > 0) return;
 		const next = this.queueIdx < this.queue.length ? (this.queue[this.queueIdx++] ?? -1) : -1;
 		if (next < 0) {
 			this.finish(); // 路径走完 → 回总览收尾
 			return;
 		}
 		this.hooks.selectNode(next, true);
-		this.dwellUntil = now + Math.max(2600, 5000 / this.speed);
+		this.dwellRemainingMs = Math.max(2600, 5000 / this.speed);
 	}
 
 	// ---------- 选点 ----------

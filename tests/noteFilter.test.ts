@@ -113,6 +113,20 @@ describe('folderStats（图例数据）', () => {
 		const b = folderStats([...VAULT].reverse()).map((f) => f.folder);
 		expect(a).toEqual(b);
 	});
+
+	it('Canvas 与 Markdown 使用相同的文件夹统计语义', () => {
+		const graphFiles = [
+			...VAULT,
+			{ path: 'Projects/Roadmap.canvas', basename: 'Roadmap' },
+			{ path: 'Root.canvas', basename: 'Root' },
+		];
+		expect(folderStats(graphFiles)).toEqual([
+			{ folder: 'Projects', count: 3 },
+			{ folder: '', count: 2 },
+			{ folder: 'Daily', count: 2 },
+			{ folder: 'Archive', count: 1 },
+		]);
+	});
 });
 
 describe('文件夹显隐（图例点击）', () => {
@@ -137,5 +151,18 @@ describe('文件夹显隐（图例点击）', () => {
 	it('图例与文本框是 AND：Projects 里排除 Index', () => {
 		const out = applyFilter(VAULT, { hiddenFolders: new Set(['Daily', 'Archive', '']), query: parseFilterQuery('-file:Index') });
 		expect(out.map((f) => f.path)).toEqual(['Projects/Galaxy View.md']);
+	});
+
+	it('Canvas 与 Markdown 使用相同的文件夹和文本过滤语义', () => {
+		const graphFiles = [
+			...VAULT,
+			{ path: 'Projects/Roadmap.canvas', basename: 'Roadmap' },
+			{ path: 'Archive/Old.canvas', basename: 'Old' },
+		];
+		const out = applyFilter(graphFiles, {
+			hiddenFolders: new Set(['Archive']),
+			query: parseFilterQuery('file:road'),
+		});
+		expect(out.map((file) => file.path)).toEqual(['Projects/Roadmap.canvas']);
 	});
 });

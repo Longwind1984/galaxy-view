@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGraph } from '../src/data/buildGraph';
+import { mergeResolvedLinks, parseCanvasFileLinks } from '../src/data/canvasLinks';
 
 const files = [
 	{ path: '01学习/笔记A.md', basename: '笔记A' },
@@ -37,6 +38,30 @@ describe('buildGraph', () => {
 	it('resolvedLinks 同对多次出现（值=次数）只产生一条边', () => {
 		const g = buildGraph(files, { '01学习/笔记A.md': { '02工作/笔记C.md': 99 } }, {}, { includeUnresolved: false, includeOrphans: true });
 		expect(g.links).toHaveLength(1);
+	});
+
+	it('Canvas 作为普通节点，接纳 resolvedLinks 中已有的 Canvas 来源与目标边', () => {
+		const withCanvas = [
+			{ path: 'notes/a.md', basename: 'a' },
+			{ path: 'boards/plan.canvas', basename: 'plan' },
+			{ path: 'notes/b.md', basename: 'b' },
+		];
+		const parsed = parseCanvasFileLinks(JSON.stringify({
+			nodes: [{ type: 'file', file: 'notes/a.md' }],
+		}));
+		expect(parsed).not.toBeNull();
+		const resolved = mergeResolvedLinks({ 'notes/b.md': { 'boards/plan.canvas': 1 } }, {
+			'boards/plan.canvas': parsed ?? {},
+		});
+
+		const g = buildGraph(withCanvas, resolved, {}, { includeUnresolved: false, includeOrphans: true });
+
+		expect(g.nodes.map((node) => node.id)).toEqual(['notes/a.md', 'boards/plan.canvas', 'notes/b.md']);
+		expect(g.links).toEqual([
+			{ source: 2, target: 1 },
+			{ source: 1, target: 0 },
+		]);
+		expect(g.nodes[1]).toMatchObject({ name: 'plan', degree: 2, inDegree: 1, outDegree: 1, unresolved: false, tag: false });
 	});
 
 	it('未解析：开关开启时生成幽灵节点并跨来源去重', () => {
@@ -95,34 +120,66 @@ describe('质量档位帽（M4）', () => {
 	});
 });
 
-describe('标签作为节点', () => {
+describe('标签数据与有界 hubs', () => {
 	const taggedFiles = [
 		{ path: 'a.md', basename: 'a', tags: ['#课堂笔记', '#数学'] },
 		{ path: 'b.md', basename: 'b', tags: ['#课堂笔记'] },
 	];
 
-	it('includeTags：共享 tag 的两篇笔记连到同一 tag 节点，该节点 degree=2', () => {
+	it('includeTags 只透传去重后的笔记标签，不制造隐藏节点或布局边', () => {
 		const g = buildGraph(taggedFiles, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: true });
-		const tagIdx = g.nodes.findIndex((n) => n.id === 'tag:#课堂笔记');
-		expect(tagIdx).toBeGreaterThanOrEqual(0);
-		expect(g.nodes[tagIdx]?.tag).toBe(true);
-		expect(g.nodes[tagIdx]?.folderTop).toBe('__tag__');
-		expect(g.nodes[tagIdx]?.degree).toBe(2); // a、b 各连一条
-		expect(g.links.filter((l) => l.target === tagIdx)).toHaveLength(2);
-		// #数学 只有 a 带 → degree 1
-		expect(g.nodes.find((n) => n.id === 'tag:#数学')?.degree).toBe(1);
+		expect(g.nodes).toHaveLength(2);
+		expect(g.links).toHaveLength(0);
+		expect(g.nodes[0]?.tags).toEqual(['#课堂笔记', '#数学']);
+		expect(g.nodes.every((n) => !n.tag)).toBe(true);
 	});
 
-	it('includeTags=false：无 tag 节点', () => {
+	it('includeTags=false：既无标签数据也无 hub', () => {
 		const g = buildGraph(taggedFiles, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: false });
 		expect(g.nodes.every((n) => !n.tag)).toBe(true);
+		expect(g.nodes.every((n) => n.tags.length === 0)).toBe(true);
 		expect(g.nodes).toHaveLength(2);
 	});
 
-	it('同笔记重复同一 tag 去重，不产生重边', () => {
-		const dup = [{ path: 'a.md', basename: 'a', tags: ['#x', '#x'] }];
-		const g = buildGraph(dup, {}, {}, { includeUnresolved: false, includeOrphans: true, includeTags: true });
-		expect(g.links).toHaveLength(1);
-		expect(g.nodes.filter((n) => n.tag)).toHaveLength(1);
+	it('showTags + hubs 时只生成 top 5 hubs；同笔记重复标签不产生重边', () => {
+		const many = [
+			{ path: 'a.md', basename: 'a', tags: ['#x', '#x', '#a', '#b', '#c', '#d', '#e'] },
+			{ path: 'b.md', basename: 'b', tags: ['#x'] },
+		];
+		const g = buildGraph(many, {}, {}, {
+			includeUnresolved: false,
+			includeOrphans: true,
+			includeTags: true,
+			includeTagHubs: true,
+			tagHubLimit: 5,
+		});
+		const hubs = g.nodes.filter((n) => n.tag);
+		expect(hubs).toHaveLength(5);
+		expect(hubs[0]).toMatchObject({ id: 'tag:#x', tags: ['#x'], degree: 2 });
+		expect(g.links.filter((l) => g.nodes[l.target]?.id === 'tag:#x')).toHaveLength(2);
+		expect(g.nodes.some((n) => n.id === 'tag:#e')).toBe(false);
+	});
+
+	it('includeTagHubs 单独开启无效，hubs 必须经过 showTags 总闸', () => {
+		const g = buildGraph(taggedFiles, {}, {}, {
+			includeUnresolved: false,
+			includeOrphans: true,
+			includeTags: false,
+			includeTagHubs: true,
+			tagHubLimit: 50,
+		});
+		expect(g.nodes.every((n) => !n.tag && n.tags.length === 0)).toBe(true);
+	});
+
+	it('损坏/旧存档给出超大 limit 时，构建端仍硬封顶 50 hubs', () => {
+		const many = Array.from({ length: 60 }, (_, i) => ({ path: `${i}.md`, basename: `${i}`, tags: [`#t${i}`] }));
+		const g = buildGraph(many, {}, {}, {
+			includeUnresolved: false,
+			includeOrphans: true,
+			includeTags: true,
+			includeTagHubs: true,
+			tagHubLimit: 999,
+		});
+		expect(g.nodes.filter((n) => n.tag)).toHaveLength(50);
 	});
 });

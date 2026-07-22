@@ -9,6 +9,7 @@ import { getLang, t, LANGS } from '../i18n';
 import type { Lang, LangPref } from '../i18n';
 import { drawPresetIcon } from './presetIcons';
 import { Slider } from './Slider';
+import type { TopTag } from '../data/tagLens';
 
 export interface ControlPanelCallbacks {
 	onBloom: () => void;
@@ -34,6 +35,12 @@ export interface ControlPanelCallbacks {
 	onReveal: () => void;
 	onShowOrphans: (on: boolean) => void;
 	onShowTags: (on: boolean) => void;
+	onTagLens: (tagId: string) => void;
+	getTopTags: () => TopTag[];
+	onTagColorMode: () => void;
+	onTagHubs: () => void;
+	onTagHubLimit: () => void;
+	onResetTags: () => void;
 	onSizeBy: () => void;
 	onQuality: () => void;
 	onSearch: () => void;
@@ -84,6 +91,11 @@ export class ControlPanel {
 	private unresolvedBtn: HTMLButtonElement | null = null;
 	private orphanBtn: HTMLButtonElement | null = null;
 	private tagBtn: HTMLButtonElement | null = null;
+	private tagHost: HTMLElement | null = null;
+	private tagOptionsHost: HTMLElement | null = null;
+	private tagColorBtn: HTMLButtonElement | null = null;
+	private tagHubsBtn: HTMLButtonElement | null = null;
+	private tagHubSliderHost: HTMLElement | null = null;
 	private sizeByBtn: HTMLButtonElement | null = null;
 	private starfieldBtn: HTMLButtonElement | null = null;
 	private tourPlayBtn: HTMLButtonElement | null = null;
@@ -166,9 +178,9 @@ export class ControlPanel {
 		};
 
 		// —— 过滤（#11）——
-		// 「什么进图」的控件全在这里：文本过滤 + 未解析/孤儿/标签三个开关（0.4.x 时它们在页脚「高级」，
-		// 与画质混居；它们本质就是过滤器，故随过滤框一起归位到主位，对齐核心 Graph View 的 IA）。
+		// 「什么笔记进图」的控件在这里；标签探索有自己的独立分区。
 		this.buildFilterSection(body, cb);
+		this.buildTagsSection(body, cb);
 
 		// 外观与配色
 		const lookSec = section(SEC.look, 'panel.sec.look', 'look');
@@ -319,7 +331,7 @@ export class ControlPanel {
 			});
 		}
 		advBody.createDiv({ cls: 'gx-sub', text: t('quality.autoSub') });
-		// 未解析/孤儿/标签三个开关已移至「过滤」分区（它们决定什么进图 = 过滤器，不是高级项）
+		// 未解析/孤儿开关已移至「过滤」分区；标签探索在独立 Tags 分区。
 		this.advStatsEl = advBody.createDiv({ cls: 'gx-adv-stats', text: '…' });
 		if (__GALAXY_DEV__) {
 			const devRow = advBody.createDiv({ cls: 'galaxy-panel-row' });
@@ -437,7 +449,7 @@ export class ControlPanel {
 		return Math.abs(a - b) < 1e-4;
 	}
 	/**
-	 * 「过滤」分区（#11）：可点的文件夹图例（主）＋ 折叠的文本查询（逃生口）＋ 未解析/孤儿/标签三个开关。
+	 * 「过滤」分区（#11）：可点的文件夹图例（主）＋ 折叠的文本查询（逃生口）＋ 未解析/孤儿开关。
 	 *
 	 * 为什么图例是主体：节点一直按顶层文件夹上色，但面板从来没暴露过图例——用户看见一团团彩色，
 	 * 既不知道颜色什么意思、也没法对它做任何事。把图例做成可点的，一个东西同时回答
@@ -537,12 +549,83 @@ export class ControlPanel {
 			this.orphanBtn?.setText(this.orphanLabel());
 			cb.onShowOrphans(s.showOrphans);
 		});
+	}
+
+	/** 标签数据总闸 + Lens/颜色/有界 hubs；三个视觉开关默认都不改变图谱。 */
+	private buildTagsSection(body: HTMLElement, cb: ControlPanelCallbacks): void {
+		const s = this.settings;
+		const det = body.createEl('details', { cls: 'gx-section gx-zone-section' });
+		if (s.panelSections['tags'] === true || (s.panelSections['tags'] === undefined && s.showTags)) det.setAttribute('open', '');
+		const sum = det.createEl('summary');
+		sum.createSpan({ cls: 'gx-caret', text: '▸' });
+		sum.createSpan({ text: t('panel.sec.tags') });
+		det.addEventListener('toggle', () => cb.onSectionToggle('tags', det.open));
+		const tagBody = det.createDiv({ cls: 'gx-section-body' });
+		const row = tagBody.createDiv({ cls: 'galaxy-panel-row' });
 		this.tagBtn = row.createEl('button', { text: this.tagLabel() });
 		this.tagBtn.addEventListener('click', () => {
 			s.showTags = !s.showTags;
-			this.tagBtn?.setText(this.tagLabel());
+			if (!s.showTags) s.tagLens = null;
 			cb.onShowTags(s.showTags);
+			this.refreshTags();
 		});
+		this.tagOptionsHost = tagBody.createDiv({ cls: 'gx-tag-options' });
+		const optionsRow = this.tagOptionsHost.createDiv({ cls: 'galaxy-panel-row' });
+		this.tagColorBtn = optionsRow.createEl('button', { text: this.tagColorLabel() });
+		this.tagColorBtn.addEventListener('click', () => {
+			s.colorByTag = !s.colorByTag;
+			cb.onTagColorMode();
+			this.refreshTags();
+		});
+		this.tagHubsBtn = optionsRow.createEl('button', { text: this.tagHubsLabel() });
+		this.tagHubsBtn.addEventListener('click', () => {
+			s.showTagHubs = !s.showTagHubs;
+			cb.onTagHubs();
+			this.refreshTags();
+		});
+		this.tagHubSliderHost = this.tagOptionsHost.createDiv({ cls: 'gx-tag-hub-slider' });
+		this.sliders.push(new Slider(this.tagHubSliderHost, {
+			label: t('tag.hubs.limit'),
+			min: 5,
+			max: 50,
+			step: 1,
+			defaultValue: DEFAULT_SETTINGS.tagHubLimit,
+			get: () => s.tagHubLimit,
+			set: (v) => (s.tagHubLimit = v),
+			fmt: (v) => String(Math.round(v)),
+			onInput: cb.onTagHubLimit,
+		}));
+		this.tagOptionsHost.createEl('button', { cls: 'gx-textlink', text: t('tag.reset') }).addEventListener('click', () => {
+			cb.onResetTags();
+			this.refreshTags();
+		});
+		this.tagHost = tagBody.createDiv({ cls: 'gx-tags' });
+		this.refreshTags();
+	}
+
+	/** 数据重建、Lens 切换和设置同步后重画标签 chips。 */
+	refreshTags(): void {
+		this.tagBtn?.setText(this.tagLabel());
+		this.tagColorBtn?.setText(this.tagColorLabel());
+		this.tagHubsBtn?.setText(this.tagHubsLabel());
+		this.tagOptionsHost?.toggleClass('is-hidden', !this.settings.showTags);
+		this.tagHubSliderHost?.toggleClass('is-hidden', !this.settings.showTags || !this.settings.showTagHubs);
+		const host = this.tagHost;
+		if (!host) return;
+		host.empty();
+		host.toggleClass('is-hidden', !this.settings.showTags);
+		if (!this.settings.showTags) return;
+		for (const tag of this.cb.getTopTags()) {
+			const chip = host.createEl('button', { cls: 'gx-tag-chip' });
+			const active = this.settings.tagLens === tag.id;
+			chip.toggleClass('is-active', active);
+			chip.setAttribute('aria-pressed', String(active));
+			chip.createSpan({ cls: 'gx-tag-name', text: tag.name });
+			chip.createSpan({ cls: 'gx-tag-count', text: String(tag.count) });
+			chip.addEventListener('click', () => {
+				this.cb.onTagLens(tag.id);
+			});
+		}
 	}
 
 	/** 由 GraphController 在重建后调用：零匹配才出提示，其余留白（头部笔记数已在变） */
@@ -667,6 +750,12 @@ export class ControlPanel {
 	private tagLabel(): string {
 		return this.settings.showTags ? t('adv.tag.on') : t('adv.tag.off');
 	}
+	private tagColorLabel(): string {
+		return this.settings.colorByTag ? t('tag.color.on') : t('tag.color.off');
+	}
+	private tagHubsLabel(): string {
+		return this.settings.showTagHubs ? t('tag.hubs.on') : t('tag.hubs.off');
+	}
 
 	refreshAll(): void {
 		for (const sl of this.sliders) sl.refresh();
@@ -675,6 +764,7 @@ export class ControlPanel {
 		this.unresolvedBtn?.setText(this.unresolvedLabel());
 		this.orphanBtn?.setText(this.orphanLabel());
 		this.tagBtn?.setText(this.tagLabel());
+		this.refreshTags();
 		this.sizeByBtn?.setText(this.sizeByLabel());
 		this.starfieldBtn?.setText(this.starfieldLabel());
 		this.buildPresets();

@@ -1,3 +1,5 @@
+import { boundedTagHubLimit } from './data/tagLens';
+
 export interface BloomSettings {
 	strength: number;
 	radius: number;
@@ -46,8 +48,16 @@ export interface GalaxySettings {
 	cruiseSpeed: number; // 巡航角速度倍率
 	showUnresolved: boolean;
 	showOrphans: boolean;
-	/** 标签作为节点：共享 tag 的笔记通过标签星成簇 */
+	/** 标签探索总闸：读取笔记标签并显示 chips；默认不增加 hub 节点。 */
 	showTags: boolean;
+	/** 当前 Tag Lens 的标签节点 id（tag:#...）；null=未激活 */
+	tagLens: string | null;
+	/** 按笔记首个标签着色；showTags 关闭时不生效。 */
+	colorByTag: boolean;
+	/** 可选 top-N 标签 hub；只有 showTags 同时开启才进入图与布局。 */
+	showTagHubs: boolean;
+	/** 标签 hub 数量硬限制 5–50。 */
+	tagHubLimit: number;
 	/** 过滤·主：被点灭的顶层文件夹（面板图例）；空数组=全显示 */
 	hiddenFolders: string[];
 	/** 过滤·逃生口：文本查询，只给图例表达不了的横切模式（散落各处的 Index 等）。语法见 data/noteFilter.ts */
@@ -92,6 +102,10 @@ export const DEFAULT_SETTINGS: GalaxySettings = {
 	showUnresolved: false,
 	showOrphans: true,
 	showTags: false,
+	tagLens: null,
+	colorByTag: false,
+	showTagHubs: false,
+	tagHubLimit: 20,
 	hiddenFolders: [],
 	filterQuery: '',
 	// 默认关：ghost 幽灵边依赖 Constellation 伴侣插件（尚未正式发布），随 0.4.0 发布但先不打扰普通用户
@@ -163,6 +177,21 @@ export function mergeSettings(saved: unknown): GalaxySettings {
 			typeof (sv as Record<string, unknown>)['showTags'] === 'boolean'
 				? ((sv as Record<string, unknown>)['showTags'] as boolean)
 				: d.showTags,
+		tagLens:
+			typeof (sv as Record<string, unknown>)['tagLens'] === 'string'
+				? ((sv as Record<string, unknown>)['tagLens'] as string)
+				: null,
+		colorByTag:
+			typeof (sv as Record<string, unknown>)['colorByTag'] === 'boolean'
+				? ((sv as Record<string, unknown>)['colorByTag'] as boolean)
+				: d.colorByTag,
+		showTagHubs:
+			typeof (sv as Record<string, unknown>)['showTagHubs'] === 'boolean'
+				? ((sv as Record<string, unknown>)['showTagHubs'] as boolean)
+				: d.showTagHubs,
+		tagHubLimit: boundedTagHubLimit(
+			num((sv as Record<string, unknown>)['tagHubLimit'], d.tagHubLimit),
+		),
 		hiddenFolders: Array.isArray((sv as Record<string, unknown>)['hiddenFolders'])
 			? ((sv as Record<string, unknown>)['hiddenFolders'] as unknown[]).filter((x): x is string => typeof x === 'string')
 			: d.hiddenFolders,

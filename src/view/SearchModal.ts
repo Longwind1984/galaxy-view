@@ -26,7 +26,7 @@ export class NodeSearchModal extends SuggestModal<Hit> {
 		if (!q) {
 			// 空查询：按度数给出枢纽 top 20——「星座导览」
 			return [...this.nodes.entries()]
-				.filter(([, n]) => !n.unresolved)
+				.filter(([, n]) => !n.unresolved && !n.tag)
 				.sort((a, b) => b[1].degree - a[1].degree)
 				.slice(0, 20)
 				.map(([index, node]) => ({ index, node, score: 0 }));

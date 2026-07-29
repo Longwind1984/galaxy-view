@@ -29,6 +29,11 @@ export class WindowFrameLoop {
 		this.schedule();
 	}
 
+	/** 可见性暂停/恢复时丢弃跨暂停时段的 elapsed，下一帧从 0 重新计时。 */
+	resetClock(): void {
+		this.previousNow = null;
+	}
+
 	private schedule(): void {
 		const owner = this.owner;
 		if (this.disposed || !owner || this.frameId !== null) return;

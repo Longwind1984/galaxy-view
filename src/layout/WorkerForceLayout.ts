@@ -99,7 +99,10 @@ export class WorkerForceLayout implements LayoutEngine {
 	}
 
 	private disposeWorker(): void {
-		this.worker?.terminate();
+		if (this.worker) {
+			this.worker.onmessage = null;
+			this.worker.terminate();
+		}
 		this.worker = null;
 		if (this.url) {
 			URL.revokeObjectURL(this.url);

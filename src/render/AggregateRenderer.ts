@@ -3,6 +3,7 @@ import {
 	BufferAttribute,
 	BufferGeometry,
 	Color,
+	DynamicDrawUsage,
 	Group,
 	LineBasicMaterial,
 	LineDashedMaterial,
@@ -24,16 +25,21 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { GraphData } from '../types';
 import type { SpaceSettings } from '../settings';
 import { BLOOM_DEFAULTS, NODE_BASE_RADIUS, NODE_MAX_RADIUS, STARFIELD_ROTATION_RAD_PER_S } from '../constants';
-import { NODE_FRAGMENT_SHADER, NODE_VERTEX_SHADER } from './shaders';
+import {
+	NODE_FRAGMENT_SHADER,
+	NODE_VERTEX_SHADER,
+	patchRevealLineShader,
+} from './shaders';
 import { linkColor, fallbackColorFn } from './palette';
 import type { NodeColorFn } from './palette';
 import { buildFieldStars, buildStarfield, disposeStarfield, Twinkler } from './starfield';
-import { fillLinkPositions, segsFor } from './linkCurves';
+import { fillLinkPositions, fillRevealLinkAttributes, segsFor } from './linkCurves';
 import { fitGraphPositions, GRAPH_FIT_RADIUS_FACTOR } from './graphTransform';
 import { ClusterClouds, NebulaDome } from './nebula';
 import type { VisualTokens } from './presets';
 import { effectivePixelRatio, type QualityTier } from '../quality/tiers';
 import { DEEP_SPACE } from './presets';
+import { maxPositionRadius, revealScale } from './reveal';
 
 const FOCUS_FADE_S = 0.28;
 
@@ -58,9 +64,11 @@ export class AggregateRenderer {
 	private linkSegments: LineSegments | null = null;
 	private linkGeometry: BufferGeometry | null = null;
 	private linkMaterial: LineBasicMaterial | null = null;
+	private revealLinkMaterial: LineBasicMaterial | null = null;
 	private selSegments: LineSegments | null = null;
 	private selGeometry: BufferGeometry | null = null;
 	private selMaterial: LineBasicMaterial | null = null;
+	private revealSelMaterial: LineBasicMaterial | null = null;
 	// —— 幽灵边（Constellation 待定建议，虚线暗层；不参与布局/邻接/拾取）——
 	private ghostSegments: LineSegments | null = null;
 	private ghostGeometry: BufferGeometry | null = null;
@@ -89,14 +97,19 @@ export class AggregateRenderer {
 	private nebulaTintB = '#9a7fe0';
 	private tierCloudsAllowed = true;
 	private tierStarScale = 1;
-	private reveal: { t0: number; durMs: number; maxR: number } | null = null;
-	private revealBuf: Float32Array = new Float32Array(0);
+	private reveal: { elapsedMs: number; durMs: number; maxR: number; target: Float32Array } | null = null;
+	private revealActiveUniform = { value: 0 };
+	private revealProgressUniform = { value: 1 };
+	private revealMaxRadiusUniform = { value: 1 };
+	private linkCurvatureUniform = { value: 0 };
 
 	private data: GraphData = { nodes: [], links: [] };
 	/** 力学模拟的原始坐标（Worker 回写 / 暖启动缓存的单一真相，只读不改） */
 	private positions: Float32Array = new Float32Array(0);
-	/** 显示坐标：positions 经居中/收缩后的副本；所有渲染与拾取只看这一份 */
+	/** CPU 拟合终点坐标；创世期间保持不变，浮层/拾取按需计算当前显示坐标 */
 	private renderPositions: Float32Array = new Float32Array(0);
+	/** GPU 节点目标坐标：正常态跟随 renderPositions；创世期间保持不可变终点 */
+	private nodeTargetPositions: Float32Array = new Float32Array(0);
 	/** fitGraphPositions 的加权用度数，随 setData 重建 */
 	private fitWeights: Float32Array = new Float32Array(0);
 	private sizes: Float32Array = new Float32Array(0);
@@ -114,6 +127,8 @@ export class AggregateRenderer {
 	private graphRadiusEstimate: number;
 
 	private projVec = new Vector3();
+	private ghostSourceVec = new Vector3();
+	private ghostTargetVec = new Vector3();
 	private pixelScale = 1;
 	private nodeScale = 1;
 
@@ -155,6 +170,7 @@ export class AggregateRenderer {
 	}
 
 	setData(data: GraphData, positions: Float32Array): void {
+		this.resetRevealState();
 		this.data = data;
 		this.positions = positions;
 		this.disposeGraphObjects();
@@ -163,6 +179,7 @@ export class AggregateRenderer {
 
 		// —— 节点 ——
 		this.renderPositions = new Float32Array(n * 3);
+		this.nodeTargetPositions = new Float32Array(n * 3);
 		this.fitWeights = new Float32Array(n);
 		const ghost = new Float32Array(n);
 		this.sizes = new Float32Array(n);
@@ -176,8 +193,12 @@ export class AggregateRenderer {
 			this.sizes[i] = this.computeSize(node);
 		}
 		this.fitPositions();
+		this.nodeTargetPositions.set(this.renderPositions);
 		this.nodeGeometry = new BufferGeometry();
-		this.nodeGeometry.setAttribute('position', new BufferAttribute(this.renderPositions, 3));
+		this.nodeGeometry.setAttribute(
+			'position',
+			new BufferAttribute(this.nodeTargetPositions, 3).setUsage(DynamicDrawUsage),
+		);
 		this.nodeGeometry.setAttribute('color', new BufferAttribute(new Float32Array(n * 3), 3));
 		this.nodeGeometry.setAttribute('aSize', new BufferAttribute(this.sizes, 1));
 		this.nodeGeometry.setAttribute('aGhost', new BufferAttribute(ghost, 1));
@@ -193,6 +214,9 @@ export class AggregateRenderer {
 				uSizeMul: { value: this.nodeScale },
 				uLightMode: { value: this.tokens.lightMode ? 1 : 0 },
 				uMaxPoint: { value: 110 * this.renderer.getPixelRatio() },
+				uRevealActive: this.revealActiveUniform,
+				uRevealProgress: this.revealProgressUniform,
+				uRevealMaxRadius: this.revealMaxRadiusUniform,
 			},
 		});
 		this.nodePoints = new Points(this.nodeGeometry, this.nodeMaterial);
@@ -283,14 +307,17 @@ export class AggregateRenderer {
 		if (!this.ghostGeometry || !this.ghostSegments) return;
 		const attr = this.ghostGeometry.getAttribute('position') as BufferAttribute;
 		const arr = attr.array as Float32Array;
-		const pos = this.renderPositions;
 		for (let i = 0; i < this.ghostLinks.length; i++) {
 			const l = this.ghostLinks[i];
 			if (!l) continue;
-			for (let k = 0; k < 3; k++) {
-				arr[i * 6 + k] = pos[l.source * 3 + k] ?? 0;
-				arr[i * 6 + 3 + k] = pos[l.target * 3 + k] ?? 0;
-			}
+			this.displayPosition(l.source, this.ghostSourceVec);
+			this.displayPosition(l.target, this.ghostTargetVec);
+			arr[i * 6] = this.ghostSourceVec.x;
+			arr[i * 6 + 1] = this.ghostSourceVec.y;
+			arr[i * 6 + 2] = this.ghostSourceVec.z;
+			arr[i * 6 + 3] = this.ghostTargetVec.x;
+			arr[i * 6 + 4] = this.ghostTargetVec.y;
+			arr[i * 6 + 5] = this.ghostTargetVec.z;
 		}
 		attr.needsUpdate = true;
 		this.ghostSegments.computeLineDistances(); // 虚线段距离随坐标更新（≤500 边，纳秒级）
@@ -299,12 +326,14 @@ export class AggregateRenderer {
 	/** 连线弯曲 0–1（滑杆）；跨 0↔>0 时段数变化需重建几何+重染色，其余仅重填顶点 */
 	setLinkCurve(v: number): void {
 		this.linkCurvature = v;
+		this.linkCurvatureUniform.value = v;
 		if (segsFor(v, this.tierLinkSegs) !== this.linkK) {
 			this.buildLinkLayer();
 			this.recolor();
 			this.buildSelLayer();
+			if (this.reveal) this.activateRevealLinkLayer(this.reveal.target);
 		}
-		if (!this.reveal) this.updatePositions(); // 创世动画期间由 stepReveal 下一帧接管
+		if (!this.reveal) this.updatePositions();
 	}
 
 	private sizeMode: 'degree' | 'fileSize' | 'uniform' = 'degree';
@@ -333,56 +362,131 @@ export class AggregateRenderer {
 
 	/**
 	 * 创世动画（G2.5 反馈）：节点从中心按半径波次绽放到沉降坐标。
-	 * 仅在坐标已知（暖启动/已沉降）时调用；链接随节点坐标自然伸展 + 透明度渐入。
+	 * 目标坐标只快照一次；节点/链接在 GPU 用同一进度展开，CPU 仅维护浮层查询坐标。
 	 */
 	playReveal(durMs = 2600): void {
 		const n = this.data.nodes.length;
-		if (n === 0) return;
-		this.fitPositions();
-		let maxR = 1;
-		for (let i = 0; i < n; i++) {
-			const r = Math.hypot(
-				this.renderPositions[i * 3] ?? 0,
-				this.renderPositions[i * 3 + 1] ?? 0,
-				this.renderPositions[i * 3 + 2] ?? 0,
-			);
-			if (r > maxR) maxR = r;
-		}
-		if (this.revealBuf.length < n * 3) this.revealBuf = new Float32Array(n * 3);
-		this.reveal = { t0: performance.now(), durMs, maxR };
+		if (n === 0 || !this.nodeGeometry || !this.linkGeometry) return;
+
+		// 重播或数据变化后都先恢复最新完整坐标，避免继承上一轮动画的显示态。
+		this.resetRevealState();
+		this.updatePositions();
+		const target = new Float32Array(this.renderPositions);
+		const maxR = maxPositionRadius(target, n);
+		this.reveal = { elapsedMs: 0, durMs: Math.max(durMs, 1), maxR, target };
+		this.revealActiveUniform.value = 1;
+		this.revealProgressUniform.value = 0;
+		this.revealMaxRadiusUniform.value = maxR;
+		this.activateRevealLinkLayer(target);
+		this.activateRevealSelectionLayer(target);
+		if (this.ghostMaterial) this.ghostMaterial.opacity = 0;
+		this.updateGhostPositions();
+		// 编译发生在遮罩淡出阶段；避免把首次 shader program 建立成本打进动画首个可见帧。
+		this.renderer.compile(this.scene, this.camera);
 	}
 
-	private stepReveal(now: number): void {
-		if (!this.reveal || !this.nodeGeometry || !this.linkGeometry) return;
-		const { t0, durMs, maxR } = this.reveal;
-		const p = (now - t0) / durMs;
+	private stepReveal(animationDeltaS: number): void {
+		const reveal = this.reveal;
+		if (!reveal) return;
+		const safeDeltaS = Number.isFinite(animationDeltaS) ? Math.max(animationDeltaS, 0) : 0;
+		reveal.elapsedMs += safeDeltaS * 1000;
+		const p = Math.min(reveal.elapsedMs / reveal.durMs, 1);
+		this.revealProgressUniform.value = p;
+		this.syncRevealLinkOpacity(p);
+		if (this.ghostMaterial) this.ghostMaterial.opacity = 0.22 * Math.min(p * 1.6, 1);
+		this.updateGhostPositions(); // ≤500 条建议边；保留虚线世界尺度，避免 shader 压缩 dash pattern
 		if (p >= 1) {
-			this.reveal = null;
+			this.resetRevealState();
 			this.updatePositions();
-			if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
-			return;
+			this.refreshClusterClouds();
 		}
-		const n = this.data.nodes.length;
-		const buf = this.revealBuf;
-		const pos = this.renderPositions;
-		for (let i = 0; i < n; i++) {
-			const x = pos[i * 3] ?? 0;
-			const y = pos[i * 3 + 1] ?? 0;
-			const z = pos[i * 3 + 2] ?? 0;
-			const delay = (Math.hypot(x, y, z) / maxR) * 0.55; // 内圈先亮，波次向外
-			const local = Math.min(Math.max((p - delay) / 0.45, 0), 1);
-			const k = 1 - Math.pow(1 - local, 3); // easeOutCubic
-			buf[i * 3] = x * k;
-			buf[i * 3 + 1] = y * k;
-			buf[i * 3 + 2] = z * k;
+	}
+
+	private fillRevealAttributes(
+		geometry: BufferGeometry,
+		target: Float32Array,
+		links: readonly ({ source: number; target: number } | undefined)[],
+		K: number,
+	): void {
+		const vertexCount = links.length * K * 2;
+		const floatCount = vertexCount * 3;
+		const existingSource = geometry.getAttribute('aSourcePosition') as BufferAttribute | undefined;
+		const existingTarget = geometry.getAttribute('aTargetPosition') as BufferAttribute | undefined;
+		const existingT = geometry.getAttribute('aCurveT') as BufferAttribute | undefined;
+		const reusable =
+			existingSource?.array instanceof Float32Array &&
+			existingSource.array.length === floatCount &&
+			existingTarget?.array instanceof Float32Array &&
+			existingTarget.array.length === floatCount &&
+			existingT?.array instanceof Float32Array &&
+			existingT.array.length === vertexCount;
+		const source = reusable ? (existingSource.array as Float32Array) : new Float32Array(floatCount);
+		const destination = reusable ? (existingTarget.array as Float32Array) : new Float32Array(floatCount);
+		const curveT = reusable ? (existingT.array as Float32Array) : new Float32Array(vertexCount);
+		fillRevealLinkAttributes(source, destination, curveT, target, links, K);
+		if (!reusable) {
+			geometry.setAttribute('aSourcePosition', new BufferAttribute(source, 3));
+			geometry.setAttribute('aTargetPosition', new BufferAttribute(destination, 3));
+			geometry.setAttribute('aCurveT', new BufferAttribute(curveT, 1));
+		} else {
+			existingSource.needsUpdate = true;
+			existingTarget.needsUpdate = true;
+			existingT.needsUpdate = true;
 		}
-		const nodeAttr = this.nodeGeometry.getAttribute('position') as BufferAttribute;
-		(nodeAttr.array as Float32Array).set(buf.subarray(0, n * 3));
-		nodeAttr.needsUpdate = true;
-		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;
-		fillLinkPositions(linkAttr.array as Float32Array, buf, this.data.links, this.linkK, this.linkCurvature);
-		linkAttr.needsUpdate = true;
-		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity() * Math.min(p * 1.6, 1);
+	}
+
+	private createRevealLinkMaterial(opacity: number): LineBasicMaterial {
+		const material = new LineBasicMaterial({
+			vertexColors: true,
+			transparent: true,
+			opacity,
+			depthWrite: false,
+		});
+		material.onBeforeCompile = (shader) => {
+			patchRevealLineShader(shader, {
+				uLinkCurvature: this.linkCurvatureUniform,
+				uRevealActive: this.revealActiveUniform,
+				uRevealProgress: this.revealProgressUniform,
+				uRevealMaxRadius: this.revealMaxRadiusUniform,
+			});
+		};
+		material.customProgramCacheKey = () => 'galaxy-reveal-basic-v1';
+		return material;
+	}
+
+	private activateRevealLinkLayer(target: Float32Array): void {
+		const geometry = this.linkGeometry;
+		const segments = this.linkSegments;
+		if (!geometry || !segments) return;
+		this.fillRevealAttributes(geometry, target, this.data.links, this.linkK);
+		this.linkCurvatureUniform.value = this.linkCurvature;
+		this.revealLinkMaterial ??= this.createRevealLinkMaterial(this.effectiveLinkOpacity());
+		this.revealLinkMaterial.opacity = this.effectiveLinkOpacity() * Math.min(this.revealProgressUniform.value * 1.6, 1);
+		segments.material = this.revealLinkMaterial;
+	}
+
+	private activateRevealSelectionLayer(target: Float32Array): void {
+		if (!this.selGeometry || !this.selSegments || this.selLinks.length === 0) return;
+		this.fillRevealAttributes(this.selGeometry, target, this.selLinks, this.linkK);
+		this.revealSelMaterial ??= this.createRevealLinkMaterial(0.85);
+		this.revealSelMaterial.opacity = 0.85 * Math.min(this.revealProgressUniform.value * 1.6, 1);
+		this.selSegments.material = this.revealSelMaterial;
+	}
+
+	private syncRevealLinkOpacity(progress: number): void {
+		const fade = Math.min(Math.max(progress, 0) * 1.6, 1);
+		if (this.revealLinkMaterial) this.revealLinkMaterial.opacity = this.effectiveLinkOpacity() * fade;
+		if (this.revealSelMaterial) this.revealSelMaterial.opacity = 0.85 * fade;
+	}
+
+	private resetRevealState(): void {
+		this.reveal = null;
+		this.revealActiveUniform.value = 0;
+		this.revealProgressUniform.value = 1;
+		this.revealMaxRadiusUniform.value = 1;
+		if (this.linkSegments && this.linkMaterial) this.linkSegments.material = this.linkMaterial;
+		if (this.selSegments && this.selMaterial) this.selSegments.material = this.selMaterial;
+		if (this.ghostMaterial) this.ghostMaterial.opacity = 0.22;
 	}
 
 	get revealing(): boolean {
@@ -435,10 +539,7 @@ export class AggregateRenderer {
 		});
 	}
 
-	/**
-	 * 把力学坐标算成显示坐标写进 renderPositions。
-	 * nodeGeometry 的 position 属性直接绑的就是这个 buffer（见 setData），所以写完只需 needsUpdate。
-	 */
+	/** 把力学坐标拟合为 CPU 显示坐标；GPU 目标缓冲由 updatePositions 显式同步。 */
 	private fitPositions(): void {
 		fitGraphPositions(
 			this.positions,
@@ -452,8 +553,10 @@ export class AggregateRenderer {
 	/** 布局热时每帧调用：先把链接密集的主体居中收进球壳，再按索引 gather 链接 */
 	updatePositions(): void {
 		if (!this.nodeGeometry || !this.linkGeometry) return;
+		if (this.reveal) return; // 本轮目标快照不可变；结束时会一次性追上 Worker 最新坐标
 		this.fitPositions();
 		const nodeAttr = this.nodeGeometry.getAttribute('position') as BufferAttribute;
+		this.nodeTargetPositions.set(this.renderPositions);
 		nodeAttr.needsUpdate = true;
 
 		const linkAttr = this.linkGeometry.getAttribute('position') as BufferAttribute;
@@ -476,7 +579,7 @@ export class AggregateRenderer {
 			this.dimTarget[i] = weightOf ? weightOf(i) : 1;
 		}
 		this.dimAnimating = true;
-		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
+		this.syncLinkOpacity();
 	}
 
 	/** 选中链接高亮：tier1=一度（全饱和），tier2=二度（降亮度）；复用同一层，零新增 draw call */
@@ -536,6 +639,7 @@ export class AggregateRenderer {
 		this.selSegments.frustumCulled = false;
 		this.scene.add(this.selSegments);
 		this.updateSelPositions();
+		if (this.reveal) this.activateRevealSelectionLayer(this.reveal.target);
 	}
 
 	private updateSelPositions(): void {
@@ -548,6 +652,13 @@ export class AggregateRenderer {
 	private effectiveLinkOpacity(): number {
 		const base = this.baseLinkOpacity * this.tokens.linkOpacityScale;
 		return this.focusActive ? base * 0.25 : base;
+	}
+
+	private syncLinkOpacity(): void {
+		const opacity = this.effectiveLinkOpacity();
+		if (this.linkMaterial) this.linkMaterial.opacity = opacity;
+		if (this.reveal) this.syncRevealLinkOpacity(this.revealProgressUniform.value);
+		else if (this.revealLinkMaterial) this.revealLinkMaterial.opacity = opacity;
 	}
 
 	// ---------- 视觉方向 ----------
@@ -564,7 +675,7 @@ export class AggregateRenderer {
 		this.bloomPass.enabled = tokens.bloomEnabled && this.tierBloomAllowed && bloomStrengthFromSettings > 0.001;
 		if (tokens.motes && !this.motes) this.buildMotes();
 		if (this.motes) this.motes.visible = tokens.motes;
-		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
+		this.syncLinkOpacity();
 		this.recolor();
 		this.buildSelLayer();
 	}
@@ -626,7 +737,7 @@ export class AggregateRenderer {
 	/** 布局沉降时刻由 GraphController 调用：重算簇质心/散布并重染 */
 	refreshClusterClouds(): void {
 		if (!this.clouds || this.data.nodes.length === 0) return;
-		this.clouds.rebuild(this.data, this.renderPositions, this.graphRadiusEstimate);
+		this.clouds.rebuild(this.data, this.reveal?.target ?? this.renderPositions, this.graphRadiusEstimate);
 		const fallback = new Color('#7a87a8');
 		this.clouds.recolor((i) => {
 			const nd = this.data.nodes[i];
@@ -670,14 +781,14 @@ export class AggregateRenderer {
 
 	// ---------- 渲染循环 ----------
 
-	render(deltaS: number): void {
+	render(deltaS: number, animationDeltaS = deltaS): void {
 		this.starfield.rotation.y += STARFIELD_ROTATION_RAD_PER_S * deltaS;
 		if (this.starfield.visible) this.twinkler.update(deltaS, this.twinkleFreq);
 		if (this.nebula?.visible) this.nebula.update(deltaS);
 		if (this.fieldStars) this.fieldStars.rotation.y -= STARFIELD_ROTATION_RAD_PER_S * 0.6 * deltaS; // 反向慢转 = 视差
 		if (this.motes?.visible) this.motes.rotation.y -= STARFIELD_ROTATION_RAD_PER_S * 2 * deltaS;
 		if (this.dimAnimating) this.stepDim(deltaS);
-		if (this.reveal) this.stepReveal(performance.now());
+		if (this.reveal) this.stepReveal(animationDeltaS);
 		this.renderer.info.reset();
 		this.composer.render();
 	}
@@ -744,7 +855,8 @@ export class AggregateRenderer {
 			this.buildLinkLayer();
 			this.recolor();
 			this.buildSelLayer();
-			this.updatePositions();
+			if (this.reveal) this.activateRevealLinkLayer(this.reveal.target);
+			else this.updatePositions();
 		}
 		// 背景层预算：星云 sprite 密度 / 浮星密度缩放 / 云雾开关
 		this.tierCloudsAllowed = tier.clusterCloudsAllowed;
@@ -764,7 +876,7 @@ export class AggregateRenderer {
 
 	setLinkOpacity(v: number): void {
 		this.baseLinkOpacity = v;
-		if (this.linkMaterial) this.linkMaterial.opacity = this.effectiveLinkOpacity();
+		this.syncLinkOpacity();
 	}
 
 	setNodeScale(v: number): void {
@@ -798,13 +910,21 @@ export class AggregateRenderer {
 
 	// ---------- 拾取与投影 ----------
 
+	/** 与 vertex shader 相同的径向展开；只对实际查询的节点计算，不做每帧 O(N) 扫描。 */
+	private displayPosition(i: number, out: Vector3): Vector3 {
+		const reveal = this.reveal;
+		const positions = reveal?.target ?? this.renderPositions;
+		const x = positions[i * 3] ?? 0;
+		const y = positions[i * 3 + 1] ?? 0;
+		const z = positions[i * 3 + 2] ?? 0;
+		if (!reveal) return out.set(x, y, z);
+		const scale = revealScale(this.revealProgressUniform.value, Math.hypot(x, y, z), reveal.maxR);
+		return out.set(x * scale, y * scale, z * scale);
+	}
+
 	/** 投影到屏幕逻辑像素；z>1 = 在镜头后 */
 	projectNode(i: number, w: number, h: number): { x: number; y: number; behind: boolean } {
-		this.projVec.set(
-			this.renderPositions[i * 3] ?? 0,
-			this.renderPositions[i * 3 + 1] ?? 0,
-			this.renderPositions[i * 3 + 2] ?? 0,
-		);
+		this.displayPosition(i, this.projVec);
 		this.projVec.project(this.camera);
 		return {
 			x: ((this.projVec.x + 1) / 2) * w,
@@ -834,11 +954,7 @@ export class AggregateRenderer {
 	}
 
 	nodePosition(i: number, out: Vector3): Vector3 {
-		return out.set(
-			this.renderPositions[i * 3] ?? 0,
-			this.renderPositions[i * 3 + 1] ?? 0,
-			this.renderPositions[i * 3 + 2] ?? 0,
-		);
+		return this.displayPosition(i, out);
 	}
 
 	nodeColorHex(i: number): string {
@@ -847,11 +963,7 @@ export class AggregateRenderer {
 	}
 
 	cameraDistanceTo(i: number): number {
-		this.projVec.set(
-			this.renderPositions[i * 3] ?? 0,
-			this.renderPositions[i * 3 + 1] ?? 0,
-			this.renderPositions[i * 3 + 2] ?? 0,
-		);
+		this.displayPosition(i, this.projVec);
 		return this.camera.position.distanceTo(this.projVec);
 	}
 
@@ -880,12 +992,16 @@ export class AggregateRenderer {
 		this.nodeMaterial?.dispose();
 		this.linkGeometry?.dispose();
 		this.linkMaterial?.dispose();
+		this.revealLinkMaterial?.dispose();
+		this.revealSelMaterial?.dispose();
 		this.nodePoints = null;
 		this.linkSegments = null;
 		this.nodeGeometry = null;
 		this.linkGeometry = null;
 		this.nodeMaterial = null;
 		this.linkMaterial = null;
+		this.revealLinkMaterial = null;
+		this.revealSelMaterial = null;
 	}
 
 	/** 销毁合同：composer 目标 → 场景资源 → renderer → 强制丢上下文 */

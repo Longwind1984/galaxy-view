@@ -739,3 +739,82 @@ dev vault 里即点即用：打开星系视图 → 5 秒星系成形 → 60fps �
 - 测试：`tests/{frameClock,windowRuntime,cameraDirector,graphFiles,canvasLinks,tagLens,qualityTiers,slider}.test.ts`、`tests/{tour,buildGraph,noteFilter,settingsMerge,palette,adjacency}.test.ts`
 
 ---
+
+## 2026-07-28 · 生产版创世动画抽搐与卡顿：只读代码诊断
+
+### 做了什么
+
+确认当前社区商店指向的正式版本仍是 0.6.0，公开 Release 对应提交 `e21c0ca`；本地 `main` 与该 tag 的代码无差异，之后只有文档改动。沿 `GraphController` 的暖启动、Worker 布局、`AggregateRenderer.playReveal/stepReveal` 与 Three.js 缓冲上传链路做了只读排查，定位到一个确定的坐标缓冲别名回归，以及一个会随边数线性放大的曲线重算瓶颈。本轮未改产品代码。
+
+### 关键结论与修复方向
+
+- **首要根因是“动画终点”和“当前绘制位置”共用同一块 `renderPositions` 缓冲。** `setData()` 把节点 geometry 的 `position` 直接绑定到 `renderPositions`；`stepReveal()` 又先从 `renderPositions` 读终点，再通过 `nodeAttr.array.set(...)` 写回同一块数组。首帧把大部分节点压到原点后，下一帧继续把已压缩的位置当终点，形成反馈回路。Worker 偶尔调用 `updatePositions()` 恢复最终坐标时画面短暂跳出，下一帧又被压回，正好解释“抽搐”；Worker 沉降后不再恢复时，动画会停在中心，结束瞬间整体跳到最终位置，解释“卡顿后突跳”。
+- **回归来源已定位到 `cad522a`（图体居中修复）。** 该提交之前节点绘制缓冲 `nodePos` 与力学终点 `positions` 分离；提交把 geometry 改绑 `renderPositions`，并让创世动画也从 `renderPositions` 读目标，却没有保留独立的不可变动画终点。
+- **次要但显著的性能瓶颈是曲线链接逐帧 CPU 重算。** 默认“银河”预设 `linkCurve=0.35`，桌面 high 档每边 8 段。真实基准库 19,337 边时，每帧写 928,176 个 float、上传约 3.54 MiB。与当前 `fillLinkPositions` 等价的本机 Node 微基准为平均 4.11ms、p95 6.54ms；不含节点计算、WebGL 上传、相机和 Bloom。布局仍在更新的帧还会先由 `updatePositions()` 多算一遍曲线，虽然真正 render 前 GPU 只上传最后一次结果。
+- **自动画质看门狗救不到开场。** 它只在布局沉降后采样，且要连续 3 个 5 秒窗口低于 30fps 才降档；创世动画只有 2.6 秒，问题发生完以后看门狗才可能行动。
+- **测试缺口明确。** 当前 16 个文件、126 项单测全部通过，但仓库没有任何 reveal 测试；0.4.0 引入曲线后，WORKLOG 也一直记录 S1/S4 与布局热窗口基准未在真机复跑。
+
+推荐分两档处理：
+
+1. **P0 正确性热修**：为 reveal 保存独立不可变目标快照（以及一次性预计算的径向 delay），`stepReveal` 只读目标、只写显示缓冲；revealing 期间跳过普通 `updatePositions()`，结束时一次性同步 Worker 最新坐标；动画计时改消费帧循环传入的 elapsed，避免继续绕过 0.6.0 的窗口时间域。
+2. **P1 性能收口**：把节点波次下沉到现有节点 vertex shader，以 `uRevealProgress + aRevealDelay` 驱动；曲线链接保持最终几何，后半程只做 opacity 渐入。这样每帧从 O(N+M×K) 数组重写和整块上传降为 O(1) uniform 更新。若必须让链接严格随节点波次伸展，再给链接换自定义 shader，而不是继续 CPU 重建 8 段曲线。
+
+被否决的临时掩盖：把默认曲率设为 0、强制 low/mobile、延长动画或只调看门狗。这些只能降低负载，不能修复终点缓冲被覆盖的逻辑错误。
+
+### 当前状态：现在能跑什么、怎么跑
+
+- `npm test`：16 个测试文件、126 项全部通过；证明现有自动门禁健康，但不覆盖创世动画。
+- 本机等价微基准：3,230 节点 / 19,337 边下，曲线 K=1 平均 0.299ms、K=8 平均 4.112ms（p95 6.543ms）；仅测 `fillLinkPositions` CPU。
+- 生产代码仍未修改。可用默认“银河”预设分别走两条复现：暖启动自动开场；布局沉降后点“重播开场动画”。后者能最纯粹暴露别名错误，因为没有 Worker 持续恢复终点。
+
+### 未尽事项与已知问题
+
+- 尚未在真实 Obsidian 里录制修复前帧时间线；本轮任务限定为代码分析，因此没有申请 GUI 控制，也没有把诊断冒充为实机复现。
+- 实施后必须新增 reveal 纯函数/状态测试：位置半径随进度单调、重复调用不依赖上一帧输出、`p=1` 精确到终点、Worker 更新不改变本次动画目标、换窗/暂停后时长正确。
+- 真机验收至少覆盖 3,230n/19,337l 默认银河 high 档、9,437n/26,975l 未解析大图、手动重播、暖启动、独立弹窗；记录 2.6 秒窗口的 avg/p95/long task，沿用桌面平均 ≥45fps 的既有性能门，并把 p95 ≤22.2ms 作为对应 45fps 帧预算的本次验收线。
+
+### 文件级变更清单
+
+- `WORKLOG.md`（追加本次只读诊断、证据、修复与验收方案）
+
+---
+
+## 2026-07-28 · 创世动画无损修复：GPU 展开、冻结终点与真实 Obsidian 验收
+
+### 做了什么
+
+修复生产版创世动画持续抽搐、卡顿和结束突跳的同一条根因链：动画目标不再与显示坐标共用缓冲；节点与 8 段曲线链接改为从不可变终点在 GPU 按原 55% 径向延迟／45% ease-out 展开，主线程每帧只更新进度 uniform，浮层位置按实际查询节点即时计算。主链接、选中／Tag Lens 高亮、幽灵虚线与集群云都跟随同一揭示状态；链接仍保留原透明度渐入。暖布局未沉降时会在开场前真正终止 Worker，动画结束后从相同坐标低温续算，避免 Worker 暗中累计 2.6 秒位移后在最后一帧硬跳。
+
+在 Obsidian 1.12.7 的隔离 dev-vault 做了多次手动重播：3,230 节点 / 19,337 链接，锁定 `Galaxy` 预设与 `High` 档，实时配置确认 `linkCurve=0.35`、Bloom `0.35/0.35/0.22`、星云／浮星／集群云全部开启。中段与完成态截图均能看到原曲线、辉光、星云和完整节点清晰度，未关闭曲率、未降低 DPR/段数、未减少节点或链接；HUD 稳态保持 60–61 fps、21 calls。Obsidian 日志未出现 WebGL／shader 错误。
+
+### 关键决策与被否决的备选
+
+- **用 GPU 重建原曲线，不改视觉参数。** 每个折线顶点只在动画开始上传一次原始端点与 `t`，vertex shader 先按原径向波次展开两端，再使用与 CPU 完全相同的二次贝塞尔公式。被否决：关闭曲率、强制 low/mobile、减少边、降低像素比或把链接退化为静态终点淡入。
+- **复用 Three 0.184 原生 `LineBasicMaterial` 管线。** 只通过 `onBeforeCompile` 替换 `<begin_vertex>`，原生 vertex colors、opacity、fog、tone mapping 与 output colorspace 不变，结束切回基础材质不会发生亮度／色彩跳变。测试直接套用已安装版本的 `ShaderLib.basic` 和 `ShaderLib.dashed` 锚点。被否决：自写 fragment shader 绕过 Three 的 tone mapping/colorspace。
+- **揭示属性随 geometry 持久复用。** 动画结束只换回原材质，不提前 `deleteAttribute`；geometry 销毁时统一释放 GPU buffer，避免每次重播遗留约 8.26 MiB。材质也复用，首次 shader 编译放在开场遮罩淡出阶段，并重置帧时钟，编译耗时不吞动画进度。
+- **暖启动停止并重建布局 Worker。** 只跳过 `layout.step()` 无法阻止 Worker 的 `onmessage` 改写 positions，因此未把它当成“已暂停”。未沉降时直接终止 Worker，结束后从同一原坐标以 alpha 0.06 续算；手动重播仍保持“已沉降才允许”的原合同。
+- **不再每帧扫描全部节点。** DOM 标签、拾取和镜头只对被查询节点套同一 `revealScale`；最多 500 条幽灵虚线保留小规模 CPU 更新，以维持 dash 的世界尺度。被否决：保留每帧 O(N) 的 `Math.hypot/pow` 全表填充。
+
+### 当前状态：现在能跑什么、怎么跑
+
+- `npm test`：18 个测试文件、137 项全部通过；新增目标／显示缓冲隔离、径向单调性、55/45 时序、别名回归、曲线静态属性、Three 原生 shader 锚点、暂停恢复时钟等测试。
+- `npm run build`：TypeScript 检查和 production esbuild 全部通过。
+- `npm run lint`：0 error；仍为仓库既有 2 条 warning（eslint config deprecated、SettingsTab 尚未采用 1.13 declarative API）。
+- `git diff --check`：通过。
+- 等规模本机微基准（3,230n / 19,337l / K=8）：旧 CPU 曲线每帧平均 1.20ms、p95 1.81ms；新方案一次性属性准备平均 0.66ms、p95 1.05ms，之后 36 个浮层查询的 CPU 平均约 0.001ms。属性常驻约 8.26 MiB，由 geometry 生命周期统一释放。
+- `npm run dev` 已构建到 `dev-vault/.obsidian/plugins/galaxy-view/`，Hot Reload 后可在「导航与动效 → 重播开场动画」直接复验。
+
+### 未尽事项与已知问题
+
+- 本轮真实 Obsidian 验收拿到 60–61 fps HUD 与多帧视觉截图，但没有完成独立 20 秒 S1 统计文件，因此不把 HUD 冒充 avg/p95/long-task 报告。若准备发布，仍建议在不同时操作 Obsidian 的窗口期补跑一次 S1 与连续重播泄漏检查。
+- 尚未在 9,437n / 26,975l 的“包含未解析”极限图和 Windows 11 上实机复验；代码路径与正常图相同，自动测试已覆盖数学与资源生命周期合同。
+- dev-vault 的测试设置现为 `Galaxy + High`，只影响隔离开发库；真实 `Rick's Second Brain` vault 未写入插件设置或文件。
+
+### 文件级变更清单
+
+- 渲染：`src/render/{AggregateRenderer,linkCurves,reveal,shaders}.ts`
+- 帧与布局：`src/timing/windowFrameLoop.ts`、`src/layout/WorkerForceLayout.ts`、`src/view/GraphController.ts`
+- 测试：`tests/{linkCurves,reveal,revealShaders,windowRuntime}.test.ts`
+- 文档：`WORKLOG.md`
+
+---

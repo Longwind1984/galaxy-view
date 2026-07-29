@@ -62,6 +62,7 @@ export class GraphController {
 	private topTagList: TopTag[] = [];
 	private graphRadius = 200;
 	private wasSettled = false;
+	private restartLayoutAfterReveal = false;
 	private shot: { elapsedMs: number; durMs: number; fromBloom: number } | null = null;
 	private maskEl: HTMLElement | null = null;
 
@@ -200,8 +201,8 @@ export class GraphController {
 			const animationDeltaS = elapsedFrameSeconds(now, previousNow);
 			const deltaS = frameDeltaSeconds(now, previousNow);
 			if (!this.paused) {
-				if (this.layout.step()) this.renderer?.updatePositions();
-				this.checkSettled();
+				if (!this.renderer?.revealing && this.layout.step()) this.renderer?.updatePositions();
+				if (!this.restartLayoutAfterReveal) this.checkSettled();
 				if (!this.benchMode) {
 					// tick + 相机 update 一起兜底：任一抛错都不能让异常冒泡冻结整个 rAF 循环
 					// （曾因 flyby 的 CatmullRom 采样在 director.update 里抛错，整个视图卡死 = 「点了没反应」）
@@ -215,7 +216,12 @@ export class GraphController {
 					}
 				}
 				this.stepShot(animationDeltaS);
-				this.renderer?.render(deltaS);
+				this.renderer?.render(deltaS, animationDeltaS);
+				if (this.restartLayoutAfterReveal && !this.renderer?.revealing) {
+					this.restartLayoutAfterReveal = false;
+					this.initLayout(0.06);
+					this.wasSettled = false;
+				}
 				const { clientWidth: w, clientHeight: h } = this.contentEl;
 				this.overlay?.update(w, h);
 			}
@@ -304,7 +310,14 @@ export class GraphController {
 			renderer.camera.position.set(f.center.x + inner * Math.cos(elev), f.center.y + inner * Math.sin(elev), f.center.z + inner * 0.2);
 			director.target.copy(f.center);
 			director.resetView(f.center, f.radius, () => director.beginFocusOrbit(null)); // 内部 → 总览 → 即时巡航
+			// 暖布局若仍在计算，必须真正停掉 Worker；只跳过 layout.step 无法阻止它后台改 positions，
+			// 会让揭示结束帧突然追上 2.6s 的累计位移。结束后从同一坐标低温续算。
+			if (!this.layout.isSettled()) {
+				this.layout.dispose();
+				this.restartLayoutAfterReveal = true;
+			}
 			renderer.playReveal(2600); // 创世动画：节点从中心波次绽放（G2.5 反馈）
+			this.frameLoop?.resetClock(); // 预编译耗时不计入揭示进度
 			this.shot = { elapsedMs: 0, durMs: ESTABLISHING_MS, fromBloom: this.settings.bloom.strength * 1.8 };
 		}, 450);
 	}
@@ -360,6 +373,7 @@ export class GraphController {
 	private onDataChanged(): void {
 		this.topTagList = topTags(this.store.data, 12, this.settings.tagLens);
 		if (!this.renderer) return;
+		this.restartLayoutAfterReveal = false;
 		this.tour?.abort(); // 索引即将重排，中止巡游以免飞错节点
 		// 先清旧索引对应的选择层；新数据落下后再按持久化 tag id 重建 Lens。
 		this.selected = -1;
@@ -669,6 +683,7 @@ export class GraphController {
 			return;
 		}
 		this.renderer?.playReveal();
+		this.frameLoop?.resetClock();
 	}
 
 	/** 在已导入的颜色组之间洗牌（同组不变，颜色互换） */
@@ -919,6 +934,7 @@ export class GraphController {
 
 	private bindVisibility(): void {
 		this.visibilityBinding = new WindowVisibilityBinding(this.contentEl, (paused) => {
+			if (this.paused !== paused) this.frameLoop?.resetClock();
 			this.paused = paused;
 		});
 		this.rebindVisibility();
@@ -1249,6 +1265,7 @@ export class GraphController {
 		this.disposeFns = [];
 		this.maskEl?.remove();
 		this.maskEl = null;
+		this.restartLayoutAfterReveal = false;
 		this.overlay?.dispose();
 		this.overlay = null;
 		this.director?.dispose();

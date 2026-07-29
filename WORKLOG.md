@@ -818,3 +818,42 @@ dev vault 里即点即用：打开星系视图 → 5 秒星系成形 → 60fps �
 - 文档：`WORKLOG.md`
 
 ---
+
+## 2026-07-29 · 0.6.1 正式发布：创世动画无损补丁
+
+### 做了什么
+
+把创世动画修复升为补丁版 0.6.1：重新执行 137 项测试、正式构建、lint 与补丁格式门禁；把 16 个修复／测试／版本文件逐字同步到 GitHub 分支，逐文件确认远端内容与本地已验证提交一致；PR #19 squash 合入 `main` 为 `1198cb10a38838870951aabc29f8ec58e94f9cae`。随后创建 `0.6.1` 正式 Release，并上传 `main.js`、`manifest.json`、`styles.css`。
+
+公开 Release 已核验为 Latest、非预发布，标签指向 `1198cb1`。GitHub 展示的三个资产摘要与本地正式构建完全一致：`main.js` 为 `6adbf3a14b2b6441463a91d049545c5eb8d2d862e7bf34267f6c96ed6c2f51db`，`manifest.json` 为 `c4f61533260b7007a4647a666022958cce42a7f40523308345161e752d200507`，`styles.css` 为 `05e6fe4dd30916131add61a409b46a3f3bb3dd104be01c1a7cc7c0f1f571802f`。
+
+### 关键决策与被否决的备选
+
+- **发布为 0.6.1 补丁版。** 修复不改变产品能力、设置结构或最低 Obsidian 版本，适合 patch，而非抬高 minor 版本。
+- **只发布已眼验的无损方案。** Release 保留 `Galaxy + High`、`linkCurve=0.35`、Bloom、星云、浮星、集群云及完整节点／链接；未采用关闭曲率、降低 DPR、删边或强制低画质。
+- **网络阻断时改走 GitHub App + 网页 Release。** 本机 `gh` 令牌失效，Git HTTPS 被 reset、SSH banner exchange 断开，CLI 网页认证请求也被网络层截断。代码通过 GitHub App 分支／PR 合入；三个本地正式构建资产先上传到 GitHub 草稿，再由已登录网页发布。被否决：把“PR 已合并”误报为“Release 已发布”，或继续重复撞同一失败传输链路。
+- **诚实保留 provenance 差异。** 本次没有通过 tag-push Actions 创建 Release，因此不具备 0.6.0 的 Actions provenance attestation；以本地门禁、真实 Obsidian 验收和 GitHub 公开 SHA-256 三方闭环替代，不冒充 CI 产物证明。
+
+### 当前状态：现在能跑什么、怎么跑
+
+- 正式版本：`0.6.1`；Release：`https://github.com/Longwind1984/galaxy-view/releases/tag/0.6.1`。
+- 主分支：PR #19 已 squash 合入 `main`，提交 `1198cb1`。
+- 自动门禁：`npm test` 18 文件／137 项通过；`npm run build` 通过；`npm run lint` 0 error、2 条既有 warning；`git diff --check` 通过。
+- 真实体验：Obsidian 1.12.7、3,230 节点／19,337 链接、Galaxy + High 多次重播保持原曲线与视觉层，HUD 60–61 fps，无 WebGL／shader 错误。
+- 安装／更新：BRAT 跟随 Latest；手动安装可从 0.6.1 Release 下载三件套。社区商店是否已抓取 0.6.1 仍需单独刷新确认。
+
+### 未尽事项与已知问题
+
+- 本机 GitHub CLI 仍是失效凭据，HTTPS／SSH Git 传输仍被当前网络链路阻断；不影响已经公开的 0.6.1，但本地分支尚未从远端 `main` 回收。
+- 0.6.1 没有 Actions provenance attestation；下次发布前应先恢复 `gh auth`／Git 传输，再回到“PR 合入 → annotated tag → Release workflow”链路。
+- 仍未完成 9,437n / 26,975l 极限图、Windows 11 与正式 20 秒 S1/p95 文件；这些是后续性能与跨平台验证，不影响本次已确认的 3,230n 生产规模修复结论。
+
+### 文件级变更清单
+
+- 版本：`package.json`、`package-lock.json`、`manifest.json`、`versions.json`
+- 渲染：`src/render/{AggregateRenderer,linkCurves,reveal,shaders}.ts`
+- 帧与布局：`src/timing/windowFrameLoop.ts`、`src/layout/WorkerForceLayout.ts`、`src/view/GraphController.ts`
+- 测试：`tests/{linkCurves,reveal,revealShaders,windowRuntime}.test.ts`
+- 文档：`WORKLOG.md`、`docs/社区巡检.md`、`docs/发布指南.md`
+
+---

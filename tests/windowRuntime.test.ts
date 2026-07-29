@@ -133,6 +133,20 @@ describe('WindowFrameLoop', () => {
 		expect(onFrame).toHaveBeenCalledTimes(1);
 		expect(a.pendingIds).toEqual([]);
 	});
+
+	it('drops elapsed time accumulated while visibility was paused', () => {
+		const a = new FakeFrameWindow();
+		const frames: Array<[number, number | null]> = [];
+		const loop = new WindowFrameLoop((now, previous) => frames.push([now, previous]));
+		loop.setOwner(a);
+		a.fire(1, 100);
+		loop.resetClock();
+		a.fire(2, 10_100);
+		expect(frames).toEqual([
+			[100, null],
+			[10_100, null],
+		]);
+	});
 });
 
 describe('WindowVisibilityBinding', () => {

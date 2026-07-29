@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CURVE_BOW, fillLinkPositions, segsFor } from '../src/render/linkCurves';
+import { CURVE_BOW, fillLinkPositions, fillRevealLinkAttributes, segsFor } from '../src/render/linkCurves';
 
 // 两个节点：源在 (10,0,0)，靶在 (0,10,0)——中点在离原点有距离的位置，径向外拱方向确定
 const positions = new Float32Array([10, 0, 0, 0, 10, 0]);
@@ -68,5 +68,29 @@ describe('fillLinkPositions', () => {
 		fillLinkPositions(out, positions, twoLinks, 1, 0);
 		expect([...out.slice(0, 6)]).toEqual([99, 99, 99, 99, 99, 99]); // 跳过=不写
 		expect([...out.slice(6)]).toEqual([10, 0, 0, 0, 10, 0]);
+	});
+});
+
+describe('fillRevealLinkAttributes', () => {
+	it('uploads the original endpoints once and assigns continuous segment t values', () => {
+		const K = 2;
+		const source = new Float32Array(K * 2 * 3);
+		const target = new Float32Array(K * 2 * 3);
+		const curveT = new Float32Array(K * 2);
+		fillRevealLinkAttributes(source, target, curveT, positions, links, K);
+
+		expect([...source]).toEqual([10, 0, 0, 10, 0, 0, 10, 0, 0, 10, 0, 0]);
+		expect([...target]).toEqual([0, 10, 0, 0, 10, 0, 0, 10, 0, 0, 10, 0]);
+		expect([...curveT]).toEqual([0, 0.5, 0.5, 1]);
+	});
+
+	it('clears skipped links when persistent reveal attributes are reused', () => {
+		const source = new Float32Array(6).fill(99);
+		const target = new Float32Array(6).fill(99);
+		const curveT = new Float32Array(2).fill(99);
+		fillRevealLinkAttributes(source, target, curveT, positions, [undefined], 1);
+		expect([...source]).toEqual([0, 0, 0, 0, 0, 0]);
+		expect([...target]).toEqual([0, 0, 0, 0, 0, 0]);
+		expect([...curveT]).toEqual([0, 0]);
 	});
 });
